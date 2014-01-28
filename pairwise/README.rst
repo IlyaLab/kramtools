@@ -37,7 +37,7 @@ The prep.py preprocesses a text matrix in "TCGA" format to:
 
 The following summarizes the product of the prep.py script.
 
-.. image:: doc/prepoutput.svg
+.. image:: ./doc/prepoutput.svg
 
 The format of the "binary data matrix" block is documented in prep.py.
 
@@ -82,7 +82,7 @@ between the light green and dark green samples and in Feature 2 between the ligh
 blue and dark blue samples. The primary statistic (whichever of the above is used)
 is calculated between the dark blue and dark green.
 
-.. image:: doc/subsets.svg
+.. image:: ./doc/subsets.svg
 
 The K-W statistic *within* each feature provides some indication of whether 
 the statistical result *between* the features was skewed by missing data.
