@@ -82,7 +82,7 @@ between the light green and dark green samples and in Feature 2 between the ligh
 blue and dark blue samples. The primary statistic (whichever of the above is used)
 is calculated between the dark blue and dark green.
 
-.. image:: ./doc/subsets.svg
+.. image:: ./doc/subsets.png
 
 The K-W statistic *within* each feature provides some indication of whether 
 the statistical result *between* the features was skewed by missing data.
