@@ -37,7 +37,7 @@ The prep.py preprocesses a text matrix in "TCGA" format to:
 
 The following summarizes the product of the prep.py script.
 
-.. image:: ./doc/prepoutput.svg
+.. image:: ./doc/prepoutput.png
 
 The format of the "binary data matrix" block is documented in prep.py.
 
