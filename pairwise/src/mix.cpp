@@ -23,14 +23,15 @@
 #include "mix.h"
 #include "bvr.h"
 
-extern "C" unsigned arg_min_mixb_count;
 
 #ifdef _UNITTEST_MIX_
+unsigned arg_min_mixb_count = 1;
 void panic( const char *src, int line ) {
 	fprintf( stderr, "panic on %s:%d", src, line );
 	abort();
 }
 #else
+extern "C" unsigned arg_min_mixb_count;
 extern "C" void panic( const char *src, int line );
 #endif
 
