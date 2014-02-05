@@ -355,7 +355,7 @@ int main( int argc, char *argv[] ) {
 #ifdef HAVE_MANN_WHITNEY
 	struct MannWhitneyStats ms;
 #endif
-	MixCovars accum( _MAX_CATEGORIES, 1 );
+	MixCovars accum( _MAX_CATEGORIES );
 	char *line = NULL;
 	size_t n = 0;
 	FILE *fp 
