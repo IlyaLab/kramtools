@@ -54,7 +54,8 @@ UNITTESTS=ut_iter \
 	ut_mix \
 	ut_cat \
 	ut_num \
-	ut_bvr
+	ut_bvr \
+	ut_dsp
 
 ############################################################################
 # Compilation options
