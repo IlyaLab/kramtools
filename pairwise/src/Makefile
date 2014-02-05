@@ -5,7 +5,7 @@
 
 EXECUTABLE_BASENAME=pairwise
 VER_MAJ=1
-VER_MIN=3
+VER_MIN=4
 VER_FIX=0
 VERSION=-D_VER_MAJ=$(VER_MAJ) -D_VER_MIN=$(VER_MIN) -D_VER_FIX=$(VER_FIX)
 
@@ -35,6 +35,7 @@ SOURCES=main.c \
 	global.c \
 	fdr.c \
 	format.c \
+	dsp.c
 
 LIBDIR=../../lib/c
 
@@ -98,6 +99,9 @@ ut_cat : cat.cpp $(addprefix $(LIBDIR)/,fisher.c min2.c)
 
 ut_num : num.cpp fp.c $(addprefix $(LIBDIR)/,rank.c)
 	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
+
+ut_dsp : dsp.c
+	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_DSP_ $^
 
 ############################################################################
 # General targets

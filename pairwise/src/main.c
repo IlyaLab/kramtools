@@ -63,6 +63,7 @@ const static char *SIGNATURE = "PAIRWISE";
  * externs
  */
 
+int next_decimal_integers( FILE *fp, int *index, int n );
 
 /***************************************************************************
  * Globals & statics
@@ -72,7 +73,8 @@ static double arg_q_value         = 0.0;
 #define USING_FDR_CONTROL (arg_q_value > 0.0)
 
 static bool  arg_webservice       = false;
-static bool  arg_byname           = false;
+static bool  arg_explicit_pairs   = false;
+static bool  arg_by_name          = false;
 
 static char  arg_outer_loop[ ITER_SPEC_BUFFER_LEN ];
 static const char *DEFAULT_OUTER = ":";
@@ -177,7 +179,7 @@ static void _emit_www(
 }
 
 /**
- * This is used STRICTLY by the arg_byname case because we
+ * This is used STRICTLY by the arg_explicit_pairs case because we
  * KNOW that string names are available.
  */
 static void (*_emit_byname)( 
@@ -224,8 +226,10 @@ static const char *USAGE_FULL =
 "%s [ options ] <prepped_binary_matrix> [ <output_file> ]\n"
 "version: %d.%d.%d\n"
 "Input options:\n"
-"  --byname|-N             Run pairwise analysis on row pairs specified\n"
-"                          by name (on stdin, unless -i given).\n"
+"  --explicit|-E           Analyse specific pairs specified by INDEX\n"
+"                          on stdin, unless -i given.\n"
+"  --byname|-N             Analyse specific pairs specified by NAME\n"
+"                          on stdin, unless -i given.\n"
 "  --input|-i <filename>   Take named pairs from the specified input file.\n"
 "                          (This is only meaningful with the -N option.)\n"
 "Processing options:\n"
@@ -254,22 +258,33 @@ static const char *USAGE_FULL =
 "                          row offsets that the given iteration specs will\n"
 "                          produce for a matrix with <count> rows. [%d]\n"
 #ifdef _DEBUG
-"  --quiet     | -Q        Don't emit any output (debuggin).\n"
+"  --silent    | -Q        Don't emit any output (debugging).\n"
 #endif
 "  --format    | -F        one of \"std\" or \"short\". Default is \"TCGA\".\n"
 "  --verbosity | -v <int>  Controls emission of secondary results\n"
 "                          and warnings.  0 => \"nothing extra\". [%d]\n"
 "\n"
 "Notes:\n"
-". Values in brackes '[ ]' above are defaults.\n"
+". Values in brackets '[ ]' above are defaults.\n"
 ". The --inner/--outer iteration spec options are MUTUALLY EXCLUSIVE with\n"
-"  the --byname option.\n"
+"  the --byname and --explicit options.\n"
 ". Categorical features MUST have <= %d categories.\n"
 ". Integer row specifiers are always offsets (0-based), so the 1st row is\n"
 "  row 0.\n"
-"Row selection:\n"
-". Row selection is accomplished by specifying the iteration ranges\n"
-"  for a pair of nested loops.\n"
+"Pair selection:\n"
+". Pairs are either\n"
+"  -- explicitly specified (by name or by index) OR\n"
+"  -- implicitly specified as integer ranges for a pair of nested\n"
+"     loops.\n"
+". If the --explicit option is used, input is freeform.\n"
+"  -- Every contiguous sequence of decimal digits in the stream is\n"
+"     treated as a row index.\n"
+"  -- ANY non-digit character(s) can be used as separators, and\n"
+"     no distinction is made between the separators within pairs\n"
+"     and separators between pairs.\n"
+"  -- Pairs of indices ADJACENT IN THE STREAM are analyzed greedily.\n"
+". The --byname option is less flexible. Its use requires that each\n"
+"  line of input contain exactly two tab-separated strings.\n"
 ". Iteration ranges are Python range format: start:stop:step.\n"
 ". The intervals are half-open (like Python), so the 1st iterate is \n"
 "  <start> and the last iterate is <stop>-1.\n"
@@ -278,15 +293,16 @@ static const char *USAGE_FULL =
 "    If <stop> is skipped (e.g. \"3::3\") it defaults to the matrix' row\n"
 "    count.\n"
 "    If <step> is skipped (e.g. \"3:3\") it defaults to 1\n"
-". Additionally, a '+' in front of the --inner (e.g. +1:) means treat\n"
-"  the inner start:stop bounds as offsets relative to the outer loop index.\n"
+". Additionally, a '+' in front of the --inner (e.g. +1:) means \"treat\n"
+"  the inner start:stop bounds as offsets relative to the outer loop index.\"\n"
 ". '+' is illegal on the outer loop spec; its range is always absolute.\n"
 ". The iteration control will NEVER allow a pair to be created\n"
 "  from the same row (an offset used twice), so don't worry about that.\n"
 ". Finally, you may supply comma-delimited sequences of iteration specs\n"
 "  for both --inner and --outer, e.g. \"--outer 0:2,9::2\". All the\n"
 "  above rules still apply unchanged.\n"
-". Experiment with them using the -D option.\n"
+". You can Experiment with --inner/--outer using the --dry-run option.\n"
+"  No analysis occurs; only pairs of indices are emitted.\n"
 ". Expressions for row selection must be < %d characters.\n"
 #ifdef _DEBUG
 "This is a _DEBUG build; assertions are enabled.\n"
@@ -399,16 +415,18 @@ int main( int argc, char *argv[] ) {
 	 */
 
 	if( arg_webservice ) {
-		arg_byname = true;
-		arg_verbosity = 0;
-		arg_p_value    = 1.0; // implies NO filtering.
+		arg_explicit_pairs = true;
+		arg_by_name        = true;
+		arg_verbosity      = 0;
+		arg_p_value        = 1.0; // implies NO filtering.
 	}
 
 	do {
 
 		static const char *CHAR_OPTIONS 
-			= "Ni:M:p:XO:I:D:HQF:v:h?";
+			= "ENi:M:p:XO:I:D:HQF:v:h?";
 		static struct option LONG_OPTIONS[] = {
+			{"explicit",   no_argument,      0,'E'},
 			{"byname",     no_argument,      0,'N'},
 			{"input",      required_argument,0,'i'},
 			{"min-ct-cell",required_argument,0, 256 }, // no short equivalents
@@ -422,10 +440,11 @@ int main( int argc, char *argv[] ) {
 			{"header",     no_argument,      0,'H'},
 			{"fdr",        required_argument,0,'q'},
 #ifdef _DEBUG
-			{"quiet",      no_argument,      0,'Q'},
+			{"silent",     no_argument,      0,'Q'},
 #endif
 			{"format",     required_argument,0,'F'},
 			{"verbosity",  required_argument,0,'v'},
+			{"help",       no_argument,      0,'h'},
 			{ NULL,        0,0, 0 }
 		};
 
@@ -435,7 +454,11 @@ int main( int argc, char *argv[] ) {
 		switch (c) {
 
 		case 'N':
-			arg_byname = true;
+			arg_by_name        = true;
+			// fall through
+
+		case 'E':
+			arg_explicit_pairs = true;
 			break;
 
 		case 'i':
@@ -527,6 +550,11 @@ int main( int argc, char *argv[] ) {
 			arg_verbosity = atoi( optarg );
 			break;
 
+		case 'h':
+			_print_usage( argv[0], stderr );
+			exit(0);
+			break;
+
 		case -1: // ...signals no more options.
 			break;
 		default:
@@ -563,7 +591,7 @@ int main( int argc, char *argv[] ) {
 	  * 0) Validate and reconcile parameters.
 	  */
 
-	if( arg_q_value > 0.0 && arg_byname ) {
+	if( arg_q_value > 0.0 && arg_explicit_pairs ) {
 		fprintf( stderr, "FDR cannot be used in the context of \"by name\" output.\n" );
 		abort();
 	}
@@ -766,7 +794,7 @@ int main( int argc, char *argv[] ) {
 		// one of the batch modes, so re-sort the rowmap so that we
 		// can lookup names by row offset...
 	
-		if( ! arg_byname )
+		if( ! arg_by_name )
 			qsort( g_rowmap, _nrow, sizeof(ROW_T), _cmp_row_offsets );
 	}
 
@@ -796,50 +824,103 @@ int main( int argc, char *argv[] ) {
 	// ...and the fact that g_matrix_body is a ptr to unsigned int are why
 	// I require SIZEOF_ROW_HEADER == SIZEOF_DATUM.
 
-	if( arg_byname ) {
+	if( arg_explicit_pairs ) {
 
-		ROW_T *lfeat, *rfeat;
-		row_t l_key, r_key;
-		size_t n = 0;
-		char *pc, *line = NULL;
 		FILE *fpi
 			= strlen(filename_in) > 0
 			? fopen( filename_in, "r" )
 			: stdin;
 
-		while( getline( &line, &n, fpi ) > 0 ) {
+		if( arg_by_name ) {
 
-			// Parse the two names out of the line.
+			ROW_T *lfeat, *rfeat;
+			row_t l_key, r_key;
+			size_t n = 0;
+			char *pc, *line = NULL;
+			while( getline( &line, &n, fpi ) > 0 ) {
 
-			pc = strchr( line, '\t' ); // ...or any whitespace?
-			if( NULL == pc ) {
-				fprintf( stderr, "error: no tab found in '%s'. Skipping it.\n", line );
-				exit_status = -1;
-				continue;
+				// Parse the two names out of the line.
+
+				pc = strchr( line, '\t' ); // ...or any whitespace?
+				if( NULL == pc ) {
+					fprintf( stderr, "error: no tab found in '%s'. Skipping it.\n", line );
+					exit_status = -1;
+					continue;
+				}
+
+				l_key.name = line;
+				*pc++ = '\0'; // Separate left from right string.
+				r_key.name = pc;
+				// Find and strip newline, if present...
+				pc = strchr( pc, '\n' );
+				if( pc ) *pc = '\0';
+
+				// ...then lookup the names.
+
+				lfeat = (ROW_T*)bsearch( &l_key, g_rowmap, _nrow, sizeof(row_t), _cmp_row_names );
+				rfeat = (ROW_T*)bsearch( &r_key, g_rowmap, _nrow, sizeof(row_t), _cmp_row_names );
+
+				if( NULL != lfeat && NULL != rfeat ) {
+
+					const unsigned int *l_ptr
+						= g_matrix_body + g_COLUMNS*lfeat->offset;
+					const unsigned int *r_ptr
+						= g_matrix_body + g_COLUMNS*rfeat->offset;
+					
+					clear_summary( &g_summary );
+
+					const unsigned status = analysis_exec( 
+							*l_ptr, (const float*)(l_ptr+1),
+							*r_ptr, (const float*)(r_ptr+1),
+							&g_summary );
+
+					// No filtering here because (presumably) user is specifying
+					// pairs--presumably they want to see whatever results are.
+					// (This is primarily motivated by the web service.)
+		
+					_emit_byname( status, lfeat->name, rfeat->name, g_fp_output );
+
+				} else {
+					fprintf( stderr,
+						"error: one or both of...\n\t1) %s\n\t2) %s\n...not found.\n",
+						l_key.name,
+						r_key.name );
+					exit_status = -2;
+				}
 			}
 
-			l_key.name = line;
-			*pc++ = '\0'; // Separate left from right string.
-			r_key.name = pc;
-			// Find and strip newline, if present...
-			pc = strchr( pc, '\n' );
-			if( pc ) *pc = '\0';
+			free( line );
 
-			// ...then lookup the names.
+		} else { // pairs by indices
 
-			lfeat = (ROW_T*)bsearch( &l_key, g_rowmap, _nrow, sizeof(row_t), _cmp_row_names );
-			rfeat = (ROW_T*)bsearch( &r_key, g_rowmap, _nrow, sizeof(row_t), _cmp_row_names );
+			const unsigned int *l_ptr;
+			const unsigned int *r_ptr;
+			unsigned status;
+			int index[2];
 
-			if( NULL != lfeat && NULL != rfeat ) {
+			memset( index, 0, sizeof(index) );
 
-				const unsigned int *l_ptr
-					= g_matrix_body + g_COLUMNS*lfeat->offset;
-				const unsigned int *r_ptr
-					= g_matrix_body + g_COLUMNS*rfeat->offset;
+			while( next_decimal_integers( fpi, index, 2 ) == 2 ) {
+
+				// Bail out on bad indices.
+
+				if( ! (    0 <= index[0] && index[0] < _nrow 
+						&& 0 <= index[1] && index[1] < _nrow ) ) {
+					fprintf( stderr, 
+						"one of row indices (%d,%d) not in [0,%d) just before offset %ld. aborting...\n",
+						index[0],
+						index[1],
+						_nrow,
+						ftell( fpi ) );
+					break;
+				}
+
+				l_ptr = g_matrix_body + g_COLUMNS*(index[0]);
+				r_ptr = g_matrix_body + g_COLUMNS*(index[1]);
 				
 				clear_summary( &g_summary );
 
-				const unsigned status = analysis_exec( 
+				status = analysis_exec( 
 						*l_ptr, (const float*)(l_ptr+1),
 						*r_ptr, (const float*)(r_ptr+1),
 						&g_summary );
@@ -848,18 +929,12 @@ int main( int argc, char *argv[] ) {
 				// pairs--presumably they want to see whatever results are.
 				// (This is primarily motivated by the web service.)
 	
-				_emit_byname( status, lfeat->name, rfeat->name, g_fp_output );
-
-			} else {
-				fprintf( stderr,
-					"error: one or both of...\n\t1) %s\n\t2) %s\n...not found.\n",
-					l_key.name,
-					r_key.name );
-				exit_status = -2;
+				_process_pair_result( index[0], index[1], status );
+			
+				memset( index, 0, sizeof(index) );
 			}
 		}
 
-		free( line );
 		fclose( fpi );
 
 	} else {
