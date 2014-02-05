@@ -23,6 +23,8 @@
 #include "mix.h"
 #include "bvr.h"
 
+extern "C" unsigned arg_min_mixb_count;
+
 #ifdef _UNITTEST_MIX_
 void panic( const char *src, int line ) {
 	fprintf( stderr, "panic on %s:%d", src, line );
@@ -44,9 +46,8 @@ ostream& operator<<( ostream& os, const MixCovars& ob ) {
 }
 #endif
 
-MixCovars::MixCovars( unsigned int cap, unsigned int minb ) : 
-	CATEGORY_CAPACITY(cap),
-	MIN_BINARY_COUNT(minb) {
+MixCovars::MixCovars( unsigned int cap ) : 
+	CATEGORY_CAPACITY(cap) {
 	category_count = new unsigned int[ CATEGORY_CAPACITY ];
 	clear(0);
 }
@@ -181,7 +182,7 @@ unsigned int MixCovars::rank_sums(
 
 
 /**
-  * - Establish whether or not Spearman is even sensible (accoding to 
+  * - Establish whether or not Spearman is even sensible (according to
   *   whether or not the categorical variable is binary).
   * - Compute the mean rank used throughout subsequent calcs.
   * - Compute the mean ranks of the categorical values assuming
@@ -211,8 +212,8 @@ bool MixCovars::complete() {
 
 		edge[1].count = category_count[ edge[1].index ];
 
-		if( edge[0].count < MIN_BINARY_COUNT or
-			edge[1].count < MIN_BINARY_COUNT )
+		if( edge[0].count < arg_min_mixb_count or
+			edge[1].count < arg_min_mixb_count )
 			return false; // another degeneracy class
 
 		edge[1].meanRank = mean_rank_of_ties( edge[0].count, samples.size());

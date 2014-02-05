@@ -24,7 +24,6 @@ class MixCovars {
 	  * be in [0,CATEGORY_CAPACITY).
 	 */ 
 	const unsigned int CATEGORY_CAPACITY;
-	const unsigned int MIN_BINARY_COUNT;
 
 	/**
 	  * This essentially bounds the allowed category LABELS. Any
@@ -72,7 +71,7 @@ class MixCovars {
 	// copy construction illegal...to expensive, no need.
 
 public:
-	explicit MixCovars( unsigned int cap, unsigned int minb );
+	explicit MixCovars( unsigned int cap );
 	~MixCovars();
 
 	/**

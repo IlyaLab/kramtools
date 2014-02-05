@@ -57,7 +57,7 @@ static int max_sample_count = 0;
  * These classes handle the actual feature1 vs feature2 analyses.
  */
 static CatCovars _caccum( _MAX_CATEGORIES, _MAX_CATEGORIES );
-static MixCovars _maccum( _MAX_CATEGORIES, arg_min_mixb_count );
+static MixCovars _maccum( _MAX_CATEGORIES );
 static NumCovars _naccum;
 
 /**
@@ -74,8 +74,8 @@ static NumCovars _naccum;
  * ESSENTIAL THAT SAMPLES PRESENT IN FEAT1 BUT MISSING IN FEAT2 ARE
  * TAGGED WITH 0 IN _waste1 (vica versa for 2).
  */
-static MixCovars _waste1( _MAX_CATEGORIES, arg_min_mixb_count );
-static MixCovars _waste2( _MAX_CATEGORIES, arg_min_mixb_count );
+static MixCovars _waste1( _MAX_CATEGORIES );
+static MixCovars _waste2( _MAX_CATEGORIES );
 
 /**
  * Let C++ choose the appropriate one...
