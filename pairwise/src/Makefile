@@ -38,6 +38,8 @@ SOURCES=main.c \
 	dsp.c
 
 LIBDIR=../../lib/c
+CONTRIB=$(LIBDIR)/contrib
+MD5DIR=$(CONTRIB)/md5
 
 LIBSOURCES=memmap.c \
 	rank.c \
@@ -103,6 +105,9 @@ ut_num : num.cpp fp.c $(addprefix $(LIBDIR)/,rank.c)
 
 ut_dsp : dsp.c
 	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_DSP_ $^
+
+ut_prep : prep.c $(LIBDIR)/strset.c $(CONTRIB)/md5/md5.c
+	$(CC) -o $@ -std=gnu99 -O0 -g -I$(LIBDIR) -I$(CONTRIB) -DHAVE_CHECKSUM -D_UNIT_TEST_PREP $^ -lm
 
 ############################################################################
 # General targets

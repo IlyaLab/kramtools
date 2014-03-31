@@ -9,7 +9,7 @@ void * szs_create( unsigned int max, int dup );
 #define SZS_ZERO_KEY       (-1)
 #define SZS_TABLE_FULL     (-2)
 
-int    szs_insert( void *, const char * str, int * );
+int    szs_insert( void *, const char * str, unsigned int * );
 
 #define SZS_RESIZE_FAILED  (-1)
 #define SZS_OUT_OF_MEMORY  (-2)

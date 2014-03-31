@@ -148,7 +148,7 @@ int szs_grow( void *ht ) {
 }
 
 
-int szs_insert( void *ht, const char *str, int *index ) {
+int szs_insert( void *ht, const char *str, unsigned int *index ) {
 
 	struct table *t 
 		= (struct table*)ht;
@@ -270,7 +270,7 @@ int main( int argc, char *argv[] ) {
 
 		if( h ) {
 			const char * k;
-			int index, erv;
+			unsigned int index, erv;
 			while( (llen = getline( &line, &blen, stdin )) > 0 ) {
 				if( line[0] == '?' ) {
 					printf( "%d/%d\n", szs_count(h), t->capacity );
