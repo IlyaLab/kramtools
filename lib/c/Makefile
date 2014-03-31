@@ -12,3 +12,5 @@ ut_ftest : fisher.c
 ut_min2 : min2.c
 	$(CC) -o $@ -g -O0 -D_UNITTEST_MIN2_ $^ $(LDFLAGS)
 
+ut_strset : strset.c
+	gcc -o $@ -std=gnu99 -D_UNIT_TEST_STRSET_ $^
