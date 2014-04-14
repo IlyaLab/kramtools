@@ -597,7 +597,8 @@ int CatCovars::g( struct CovarsSummary *cs ) {
 }
 #endif
 
-int CatCovars::chi_square( struct CommonStats *cs, struct ChiSquareStats *qs ) {
+int CatCovars::chi_square( struct Statistic *result
+		/*struct CommonStats *cs, struct ChiSquareStats *qs */) {
 
 	unsigned int n_empty = 0;
 	double chi = 0.0;
@@ -617,18 +618,24 @@ int CatCovars::chi_square( struct CommonStats *cs, struct ChiSquareStats *qs ) {
 		}
 	}
 
-	cs->P = gsl_cdf_chisq_Q( chi, (decl_rows-1)*(decl_cols-1) );
+	result->name
+		= "Chi-square";
+	result->sample_count
+		= sample_count;
+	result->probability
+		= gsl_cdf_chisq_Q( chi, (decl_rows-1)*(decl_cols-1) );
 
-	qs->rows = decl_rows;
-	qs->cols = decl_cols;
-	qs->min_expected_cell_count = minimumExpected;
-	qs->empty_cells             = n_empty;
+	result->extra[0] = decl_rows;
+	result->extra[1] = decl_cols;
+	result->extra[2] = minimumExpected;
+	result->extra[3] = n_empty;
 
 	return 0;
 }
 
 
-int CatCovars::fisher_exact( struct CommonStats *cs, struct FisherExactStats *fs ) const {
+int CatCovars::fisher_exact( struct Statistic *result 
+		/*struct CommonStats *cs, struct FisherExactStats *fs*/ ) const {
 
 	// OPTIMIZE: does not make sense to call fisher exact without
 	// NULL stest_t argument. Keeping this signature for consistency
@@ -649,13 +656,20 @@ int CatCovars::fisher_exact( struct CommonStats *cs, struct FisherExactStats *fs
 	  * k == a+b
 	  * x == a
 	  */
-	cs->P = fexact_prob( 
+	result->name
+		= "Fisher Exact";
+	result->sample_count
+		= sample_count;
+	result->probability
+		= fexact_prob( 
 			count(0,0), 
 			count(0,0) + count(1,0),   // a+c
 			count(0,1) + count(1,1),   // b+d
 			count(0,0) + count(0,1) ); // a+b
-	fs->rows = decl_rows;
-	fs->cols = decl_cols;
+
+	// TODO: Don't need these now.
+	result->extra[0] = decl_rows;
+	result->extra[1] = decl_cols;
 
 	return 0;
 }

@@ -164,8 +164,8 @@ public:
 #ifdef HAVE_G_TEST
 	int g( /* unfinished */ );
 #endif
-	int chi_square( struct CommonStats *, struct ChiSquareStats * );
-	int fisher_exact( struct CommonStats *, struct FisherExactStats * ) const;
+	int chi_square( struct Statistic * );
+	int fisher_exact( struct Statistic * ) const;
 	double spearman_rho() const;
 
 	enum {

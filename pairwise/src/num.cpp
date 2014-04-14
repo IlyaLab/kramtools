@@ -59,7 +59,8 @@ bool NumCovars::complete() {
 
 /**
  */
-int NumCovars::spearman_correlation( struct CommonStats *cs, struct SpearmanStats *ss ) {
+int NumCovars::spearman_correlation( struct Statistic *result
+		/* struct CommonStats *cs, struct SpearmanStats *ss */ ) {
 
 	const int N
 		= size();
@@ -73,9 +74,9 @@ int NumCovars::spearman_correlation( struct CommonStats *cs, struct SpearmanStat
 		= rank_floats( r.data(), N, 0, rank_scratch );
 
 	if( RANK_STATUS_CONST & rinfo1 ) // vectors were in fact constant!
-		ss->ties[0] = N-1;
+		result->extra[0] = N-1;
 	if( RANK_STATUS_CONST & rinfo2 )
-		ss->ties[1] = N-1;
+		result->extra[1] = N-1;
 
 	{
 		const double rho 
@@ -94,16 +95,20 @@ int NumCovars::spearman_correlation( struct CommonStats *cs, struct SpearmanStat
 		const double z
 			= sqrt( (N - 3.0) / 1.06 ) * FisherTransform;
 		// ...z ~ N(0,1) under null hyp of statistical independence.
-		cs->P = gsl_cdf_ugaussian_Q( fabs(z) );
+		result->name
+			= "Spearman rho, Fisher transform";
+		result->probability = gsl_cdf_ugaussian_Q( fabs(z) );
 #else
 		const double t 
 			=  fabs( rho*sqrt((N-2.0)/(1.0-rho*rho)) );
 		// ...abs so that I can always test the upper tail.
 		// x2 below to make it a two-tailed test. (t-distribution
 		// is symmetric).
-		cs->P = 2* gsl_cdf_tdist_Q(t,N-2.0);
+		result->name
+			= "Spearman rho, t-dist approx.";
+		result->probability = 2* gsl_cdf_tdist_Q(t,N-2.0);
 #endif
-		ss->rho = rho;
+		result->value = rho;
 	}
 
 	return 0;

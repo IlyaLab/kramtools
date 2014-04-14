@@ -23,6 +23,12 @@
  * In this context, copying isn't so silly, especially as recipient
  * class instances structure the copied data on the fly for optimal
  * downstream computation.
+ *
+ * Code here is motivated by two overriding concerns:
+ * 1. the statistical processing classes mix/cat/num should depend
+ *    on nothing more than the struct Statistic class.
+ * 2. everything on data should be accomplished in 1-pass! This
+ *    puts some hard constraints on the approach to code.
  */
 
 #include <ostream>
@@ -31,15 +37,16 @@
 #include <cstring>
 #include <cmath>
 #include <cassert>
-#include <stddef.h> // for offsetof
+//#include <stddef.h> // for offsetof
 
+#include "stattest.h"
 #include "analysis.h"
 #include "cat.h"
 #include "mix.h"
 #include "num.h"
 #include "args.h"
 #include "mtmatrix.h"
-
+/*
 const char *COVAR_TYPE_STR[] = {
 	"??",
 	"NN",
@@ -59,16 +66,16 @@ const char *HypTestNames[HypothesisTestCount] = {
 	"Spear",
 	"Pears"
 };
+*/
 
-
-void clear_summary( struct Analysis *cs ) {
-
+void covan_clear( struct CovariateAnalysis *cs ) {
+#if 0
 	// Initializing the p-values is a bit paranoid, but filtering requires
 	// valid values in there. Initializing the log to a default non-empty
 	// value so that _emit'ters don't have to check for NULL and column
 	// counts are ALWAYS the same.
 
-	memset( cs, 0, offsetof(struct Analysis,log) );
+	memset( cs, 0, offsetof(struct CovariateAnalysis,log) );
 	// ...don't bother zeroing entire log buffer!
 
 	// All following is paranoia to insure initialization
@@ -85,16 +92,10 @@ void clear_summary( struct Analysis *cs ) {
 	cs->spearman_rho = nan("nan");
 	cs->log[0] = EOLOG;
 	cs->log[1] = '\0' ;
+#else
+	memset( cs, 0, sizeof(struct CovariateAnalysis) );
+#endif
 }
-
-/**
- * These constants must match similar constants used in the Python
- * script that converts TCGA tabbed-separated-values files into the
- * binary form that this code expects. (...currently named prep.py)
- */
-#define MISSING_MASK     0x0000FFFF
-#define CATCOUNT_MASK    0x00FF0000
-#define CATEGORICAL_FLAG 0x01000000
 
 /**
   * Most arrays are pre-allocated and sized according to this variable.
@@ -120,10 +121,10 @@ static NumCovars _naccum;
  * count is always output by the Kruskal-Wallis test. This is motivated
  * primarily by the application defined above. As a result, it is 
  * ESSENTIAL THAT SAMPLES PRESENT IN FEAT1 BUT MISSING IN FEAT2 ARE
- * TAGGED WITH 0 IN _waste1 (vica versa for 2).
+ * TAGGED WITH 0 IN _Lwaste (vica versa for 2).
  */
-static MixCovars _waste1( _MAX_CATEGORIES );
-static MixCovars _waste2( _MAX_CATEGORIES );
+static MixCovars _Lwaste( _MAX_CATEGORIES );
+static MixCovars _Rwaste( _MAX_CATEGORIES );
 
 /**
  * Let C++ choose the appropriate one...
@@ -144,14 +145,14 @@ inline bool _present( float f ) {
  * This must pre-allocate all the memory we might need for every combination
  * of data types.
  */
-int analysis_init( int columns ) {
+int covan_init( int columns ) {
 
 	max_sample_count = columns; // EVERYTHING depends on this.
 
 	_naccum.reserve( max_sample_count );
 	_maccum.reserve( max_sample_count );
-	_waste1.reserve( max_sample_count );
-	_waste2.reserve( max_sample_count );
+	_Lwaste.reserve( max_sample_count );
+	_Rwaste.reserve( max_sample_count );
 
 	_caccum.setMinCellCount( arg_min_cell_count );
 
@@ -188,13 +189,9 @@ int analysis_init( int columns ) {
  * 5. An "auxiliary" Spearman rho is always computed unless one of 
  *    covariates is categorical with > 2 categories.
  */
-unsigned analyze_pair( const struct mt_row_pair *pair,
-		struct Analysis *res ) {
-/*
-unsigned analyze_pair( 
-		MT_DESCRIPTOR d1, MT_ROW_PTR f1, 
-		MT_DESCRIPTOR d2, MT_ROW_PTR f2, 
-		struct Analysis *res ) */
+int covan_exec( 
+		const struct mt_row_pair *pair,
+		struct CovariateAnalysis *res ) {
 
 	static const char *TOO_MANY_CATS
 		= "error: category count (%d) in feature %d exceeds maximum (%d)\n";
@@ -202,97 +199,138 @@ unsigned analyze_pair(
 	// Extract the category counts from the (32-bit unsigned int) header.
 	// Bitfields are defined in the Python3 code prep.py.
 
-	const unsigned int C1 = pair->left.prop.categories;
-	const unsigned int C2 = pair->right.prop.categories;
+	const unsigned int C1
+		= pair->left.prop.categories;
+	const unsigned int C2
+		= pair->right.prop.categories;
 
-	unsigned status  = 0;
 	unsigned unused1 = 0;
 	unsigned unused2 = 0;
 	unsigned count   = 0;
 
-	memset( res, 0, sizeof(*res));
+	covan_clear( res );
+
 	/**
-	 * Regardless of the classes of variables, if either C1 or C2 equals 
-	 * one, we're in a degenerate situation. Either:
-	 * 1) a constant numeric vector (i.e. one with a single non-missing
-	 *    repeated value), or
-	 * 2) a categorical vector with a single (non-missing) category.
-	 * With univariate degeneracy there's no point in going further...
-	 */
-	if( C1 == 1 ) {
-		res->kind = DegenIndet;
-		return FAIL_E_DEGEN;
+	  * Determine feature classes and check for univariate degeneracy.
+	  * Univariate degeneracy precludes further analysis. 
+	  */
+
+	if( pair->left.prop.constant || pair->right.prop.constant ) {
+		res->status = FAIL_E_DEGEN;
+		return -1;
 	} else
-	if( C2 == 1 ) {
-		res->kind = IndetDegen;
-		return FAIL_E_DEGEN;
-	} else 
-	if( not ( C1 <= _MAX_CATEGORIES ) ) {
-		fprintf( stderr, TOO_MANY_CATS, C1, 1, _MAX_CATEGORIES );
-		return FAIL_TOOMANY;
-	} else
-	if( not ( C2 <= _MAX_CATEGORIES ) ) {
-		fprintf( stderr, TOO_MANY_CATS, C2, 2, _MAX_CATEGORIES );
-		return FAIL_TOOMANY;
-	} else {
-		res->kind = (enum CovarTypes)(
-		     (pair->left.prop.categories>0?1:0)
-		   + (pair->right.prop.categories>0?2:0) 
-		   + 1 );
-		assert( UnknownCovar < res->kind and res->kind <= CatCat );
+	if( C1 > _MAX_CATEGORIES || C2 > _MAX_CATEGORIES ) {
+		res->status = FAIL_TOOMANY;
+		return -1;
 	}
+
+	res->lclass = C1 > 0 ? Categorical : Continuous;
+	res->rclass = C2 > 0 ? Categorical : Continuous;
 
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
 
-	_waste1.clear( 2 ); // Secondary analyses ALWAYS involve...
-	_waste2.clear( 2 ); // ...only categories {0,1}.
+	_Lwaste.clear( 2 ); // Secondary analyses ALWAYS involve...
+	_Rwaste.clear( 2 ); // ...only categories {0,1}.
 
-	switch( res->kind ) {
+	if( res->lclass == res->rclass ) {
 
-	case NumNum:
+		if( res->lclass == Continuous ) {
 
-		_naccum.clear();
+			_naccum.clear();
 
-		for(int i = 0; i < max_sample_count; i++ ) {
+			for(int i = 0; i < max_sample_count; i++ ) {
 
-			const float F1 = reinterpret_cast<const float*>(pair->left.data)[i];
-			const float F2 = reinterpret_cast<const float*>(pair->right.data)[i];
+				const float F1
+					= reinterpret_cast<const float*>(pair->left.data)[i];
+				const float F2
+					= reinterpret_cast<const float*>(pair->right.data)[i];
 
-			if( _present(F1) ) {
-				if( _present(F2) ) {
-					_naccum.push( F1, F2 );
-					_waste1.push( F1, 1 );
-					_waste2.push( F2, 1 );
-				} else {
-					_waste1.push( F1, 0 );
-					unused1++;
+				if( _present(F1) ) {
+					if( _present(F2) ) {
+						_naccum.push( F1, F2 );
+						_Lwaste.push( F1, 1 );
+						_Rwaste.push( F2, 1 );
+					} else {
+						_Lwaste.push( F1, 0 );
+						unused1++;
+					}
+				} else { // F1 is N/A
+					if( _present(F2) ) {
+						_Rwaste.push( F2, 0 );
+						unused2++;
+					}
 				}
-			} else { // F1 is N/A
-				if( _present(F2) ) {
-					_waste2.push( F2, 0 );
-					unused2++;
+			}
+
+			count = _naccum.size();
+
+			if( not _naccum.complete() ) {
+				res->status |= FAIL_L_DEGEN;
+			} else
+			if( count >= arg_min_sample_count ) {
+				_naccum.spearman_correlation( &res->correlation );
+			} else
+				res->status |= FAIL_SAMPLES;
+
+		} else {
+
+			assert( res->lclass == Categorical );
+
+			_caccum.clear( C1, C2 );
+
+			// Note that cardinality of univariate features says NOTHING about 
+			// the final table after pairs with NA's are removed! It could be
+			// empty! That will fall out below though.
+
+			for(int i = 0; i < max_sample_count; i++ ) {
+
+				const unsigned int F1 
+					= pair->left.data[i];
+				const unsigned int F2 
+					= pair->right.data[i];
+
+				// Notice: Though we can't (currently) statistically compare the
+				// within-feature discrepancy in CC case as in case involving a
+				// numeric variable, I nonetheless use the output structs to
+				// at least count the number of wasted samples in each feature.
+
+				if( _present(F1) ) {
+					if( _present(F2) ) {
+						_caccum.push( F1, F2 );
+					} else { 
+						unused1++;
+					}
+				} else { // F1 is N/A
+					if( _present(F2) ) {
+						unused2++;
+					}
 				}
+			}
+
+			count = _caccum.size();
+
+			if( not _caccum.complete() ) {
+				res->status |= FAIL_L_DEGEN;
+			} else {
+				_caccum.cullBadCells( res->association.log, MAXLEN_STATRESULT_LOG );
+				if( count >= arg_min_sample_count ) {
+					if( _caccum.is2x2() ) {
+						_caccum.fisher_exact( &res->association );
+						res->correlation.value = _caccum.spearman_rho();
+					} else {
+						_caccum.chi_square( &res->association );
+					}
+				} else
+					res->status |= FAIL_SAMPLES;
 			}
 		}
 
-		count = _naccum.size();
+	} else { // features are not of same class
 
-		if( not _naccum.complete() ) {
-			status |= FAIL_L_DEGEN;
-		} else
-		if( count >= arg_min_sample_count ) {
-			res->test = Spearman;
-			_naccum.spearman_correlation( &res->common, &res->spearman );
-			res->spearman_rho = res->spearman.rho;
-		} else
-			status |= FAIL_SAMPLES;
-		break; // end-of-case NumNum
+		if( res->lclass == Categorical ) {
 
-	case CatNum: // F1 categorical, F2 numeric
-	case NumCat: // F1 numeric, F2 categorical
-
-		if( CatNum == res->kind ) {
+			assert( res->rclass == Continuous );
 
 			_maccum.clear( C1 );
 
@@ -306,9 +344,9 @@ unsigned analyze_pair(
 				if( _present(F2) ) {
 					if( _present(F1) ) {
 						_maccum.push( F2, F1 );
-						_waste2.push( F2, 1 );
+						_Rwaste.push( F2, 1 );
 					} else {
-						_waste2.push( F2, 0 );
+						_Rwaste.push( F2, 0 );
 						unused2++;
 					}
 				} else { // F2 is N/A
@@ -318,7 +356,9 @@ unsigned analyze_pair(
 				}
 			}
 
-		} else { // NumCat
+		} else {
+
+			assert( res->lclass == Continuous && res->rclass == Categorical );
 
 			_maccum.clear( C2 );
 
@@ -332,9 +372,9 @@ unsigned analyze_pair(
 				if( _present(F1) ) {
 					if( _present(F2) ) {
 						_maccum.push( F1, F2 );
-						_waste1.push( F1, 1 );
+						_Lwaste.push( F1, 1 );
 					} else {
-						_waste1.push( F1, 0 );
+						_Lwaste.push( F1, 0 );
 						unused1++;
 					}
 				} else { // F1 is N/A
@@ -348,97 +388,33 @@ unsigned analyze_pair(
 		count = _maccum.size();
 
 		if( not _maccum.complete() ) {
-			status |= FAIL_L_DEGEN;
+			res->status |= FAIL_L_DEGEN;
 		} else
 		if( count >= arg_min_sample_count ) {
-			res->test = KruskalWallis;
-			_maccum.kruskal_wallis( &res->common, &res->kruskal );
+			_maccum.kruskal_wallis( &res->association );
 			if( _maccum.categoricalIsBinary() )
-				res->spearman_rho = _maccum.spearman_rho();
+				res->correlation.value = _maccum.spearman_rho();
 		} else
-			status |= FAIL_SAMPLES;
-		break; // end-of-case CatNum, NumCat
-
-	case CatCat: // both categorical
-
-		_caccum.clear( C1, C2 );
-
-		// Note that cardinality of univariate features says NOTHING about 
-		// the final table after pairs with NA's are removed! It could be
-		// empty! That will fall out below though.
-
-		for(int i = 0; i < max_sample_count; i++ ) {
-
-			const unsigned int F1 
-				= pair->left.data[i];
-			const unsigned int F2 
-				= pair->right.data[i];
-
-			// Notice: Though we can't (currently) statistically compare the
-			// within-feature discrepancy in CC case as in case involving a
-			// numeric variable, I nonetheless use the output structs to
-			// at least count the number of wasted samples in each feature.
-
-			if( _present(F1) ) {
-				if( _present(F2) ) {
-					_caccum.push( F1, F2 );
-				} else { 
-					unused1++;
-				}
-			} else { // F1 is N/A
-				if( _present(F2) ) {
-					unused2++;
-				}
-			}
-		}
-
-		count = _caccum.size();
-
-		if( not _caccum.complete() ) {
-			status |= FAIL_L_DEGEN;
-		} else {
-			_caccum.cullBadCells( res->log, SUMMARY_LOG_LEN );
-			if( count >= arg_min_sample_count ) {
-				if( _caccum.is2x2() ) {
-					res->test = FisherExact;
-					_caccum.fisher_exact( &res->common, &res->fisherx );
-					res->spearman_rho = _caccum.spearman_rho();
-				} else {
-					res->test = ChiSquare;
-					_caccum.chi_square( &res->common, &res->chisq );
-				}
-			} else
-				status |= FAIL_SAMPLES;
-		}
-		break; // end-of-case CatCat
-
-	default:
-		fprintf( stderr, "Should be impossible to reach %s:%d!", 
-			__FILE__, __LINE__ );
-		abort();
+			res->status |= FAIL_SAMPLES;
 	}
 
 	/**
 	  * post-filtering counts should always be valid whatever 
 	  * else has occurred.
 	  */
-	res->common.N        = count;
-	res->waste[0].unused = unused1;
-	res->waste[1].unused = unused2;
+	//res->common.N        = count;
+	//res->waste[0].unused = unused1;
+	//res->waste[1].unused = unused2;
 
 	// Characterize how the unused parts of the two samples might have
 	// affected the statistics computed on their "overlap".
 
-	if( _waste1.complete() )
-		_waste1.kruskal_wallis( 
-			&(res->waste[0].common), 
-			&(res->waste[0].kruskal) );
+	if( _Lwaste.complete() )
+		_Lwaste.kruskal_wallis( res->waste + 0 );
 
-	if( _waste2.complete() )
-		_waste2.kruskal_wallis( 
-			&(res->waste[1].common), 
-			&(res->waste[1].kruskal) );
+	if( _Rwaste.complete() )
+		_Rwaste.kruskal_wallis( res->waste + 1 );
 
-	return status;
+	return res->status ? -1 : 0;
 }
 

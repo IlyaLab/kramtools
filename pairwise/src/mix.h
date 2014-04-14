@@ -93,9 +93,9 @@ public:
 	 * Reordering of data is a side affect of kruskal_wallis
 	 * and mann_whitney.
 	 */
-	int kruskal_wallis( struct CommonStats *cs, struct KruskalWallisStats *ks );
+	int kruskal_wallis( struct Statistic * );
 #ifdef HAVE_MANN_WHITNEY
-	int mann_whitney( struct CommonStats *cs, struct MannWhitneyStats *ms );
+	int mann_whitney( struct Statistic * );
 #endif
 	/**
 	  * This MUST be called AFTER kruskal_wallis or mann_whitney.

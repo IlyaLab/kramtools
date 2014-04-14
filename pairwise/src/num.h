@@ -38,9 +38,9 @@ public:
 	 * Available statistics
 	 */
 #ifdef HAVE_SCALAR_PEARSON
-	int pearson_correlation( struct CommonStats *, struct PearsonStats * );
+	int pearson_correlation( struct Statistic * );
 #endif
-	int spearman_correlation( struct CommonStats *, struct SpearmanStats * );
+	int spearman_correlation( struct Statistic * );
 };
 
 

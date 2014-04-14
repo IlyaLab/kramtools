@@ -40,6 +40,7 @@
 
 //#include "format.h"
 #include "mtmatrix.h"
+#include "stattest.h"
 #include "analysis.h"
 
 #ifdef HAVE_LUA
@@ -61,7 +62,7 @@ int get_base10_ints( FILE *fp, int *index, int n );
 FILE *g_fp_output = NULL;
 FILE *g_fp_cache = NULL;
 
-struct Analysis g_summary;
+struct CovariateAnalysis g_summary;
 
 size_t g_COLUMNS = 0;
 /*
@@ -167,7 +168,7 @@ void panic( const char *src, int line ) {
   */
 #define ANALYSIS_RESULTS_RCVR_SIG const struct mt_row_pair *rp, \
 	unsignd astat,\
-	struct Analysis *results,\
+	struct CovariateAnalysis *results,\
 	FILE *dest 
 
 typedef void (*ANALYSIS_RESULT_PROCESSOR)( ANALYSIS_RESULTS_RCVR_SIG );
@@ -283,7 +284,7 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 		// TODO:const unsigned *pa = g_matrix_body + g_COLUMNS*prec->a;
 		// TODO:const unsigned *pb = g_matrix_body + g_COLUMNS*prec->b;
 
-		clear_summary( &g_summary );
+		covan_clear( &g_summary );
 /*
    TODO
 		const unsigned status = analysis_exec( 
@@ -357,7 +358,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 		}
 
 		_process_pair_result( &fpair, 
-				analyze_pair( &fpair, &g_summary ) );
+				covan_exec( &fpair, &g_summary ) );
 	}
 
 	if( left )
@@ -367,7 +368,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 }
 
 
-static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
+static int /*ANUM*/ _covan_exec_list( FILE *fp ) {
 
 	struct mt_row_pair fpair;
 
@@ -394,7 +395,7 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 		}
 		
 		_process_pair_result( &fpair, 
-				analyze_pair( &fpair, &g_summary ) );
+				covan_exec( &fpair, &g_summary ) );
 	}
 	return 0;
 }
@@ -407,7 +408,7 @@ static int /*ALUA*/ _analyze_generated_pair_list(/*Lua stuff */) {
 
 	while( false ) {
 		_process_pair_result( &fpair, 
-				analyze_pair( &fpair, &g_summary ) );
+				covan_exec( &fpair, &g_summary ) );
 
 		if( g_sigint_received ) {
 			time_t now = time(NULL);
@@ -463,7 +464,7 @@ static int /*AALL*/ _analyze_all_pairs() {
 			fpair.right.prop = _matrix.prop[ fpair.right.offset ];
 
 			_process_pair_result( &fpair, 
-					analyze_pair( &fpair, &g_summary ) );
+					covan_exec( &fpair, &g_summary ) );
 
 			if( g_sigint_received ) {
 				time_t now = time(NULL);
@@ -859,8 +860,8 @@ int main( int argc, char *argv[] ) {
 		? fopen( o_file, "w" ) 
 		: stdout;
 
-	if( analysis_init( _matrix.columns ) ) {
-		fprintf( stderr, "error: analysis_init(%d)\n", _matrix.columns );
+	if( covan_init( _matrix.columns ) ) {
+		fprintf( stderr, "error: covan_init(%d)\n", _matrix.columns );
 		exit(-1);
 	}
 
@@ -882,7 +883,7 @@ int main( int argc, char *argv[] ) {
 			int err
 				= opt_by_name 
 				? _analyze_named_pair_list( fp )
-				: _analyze_pair_list( fp );
+				: _covan_exec_list( fp );
 			fclose( fp );
 		} else
 			fprintf( stderr, "error" );
@@ -922,7 +923,7 @@ int main( int argc, char *argv[] ) {
 		int i;
 		fprintf( g_fp_output, "# Filter counts follow:\n" );
 		for(i = 0; i < (int)CovarTypeCount; i++ ) {
-			fprintf( g_fp_output, "# %s %d\n", COVAR_TYPE_STR[i], _filtered[i] );
+			// TODO: fprintf( g_fp_output, "# %s %d\n", COVAR_TYPE_STR[i], _filtered[i] );
 		}
 	}
 

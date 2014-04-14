@@ -229,7 +229,7 @@ bool MixCovars::complete() {
  * Calculates the Kruskal-Wallis statistic and optionally a p-value.
  * Importantly, it does it in a one pass iteration over the data.
  */
-int MixCovars::kruskal_wallis( struct CommonStats *cs, struct KruskalWallisStats *ks ) {
+int MixCovars::kruskal_wallis( struct Statistic *result/*struct CommonStats *cs, struct KruskalWallisStats *ks*/ ) {
 
 	const unsigned int N 
 		= size();
@@ -241,7 +241,7 @@ int MixCovars::kruskal_wallis( struct CommonStats *cs, struct KruskalWallisStats
 
 	double numerator = 0.0;
 
-	ks->ties = rank_sums( rank_sum );
+	result->extra[0] = rank_sums( rank_sum );
 
 	for(unsigned int i = 0; i <= edge[1].index; i++ ) {
 		if( category_count[i] > 0 ) {
@@ -253,8 +253,14 @@ int MixCovars::kruskal_wallis( struct CommonStats *cs, struct KruskalWallisStats
 		}
 	}
 
-	ks->K = (N-1) * ( numerator / sum_sq_dev );
-	cs->P = gsl_cdf_chisq_Q( ks->K, observed_categories-1 );
+	result->name
+		= "Kruskal-Wallis K";
+	result->sample_count
+		= N;
+	result->value
+		= (N-1) * ( numerator / sum_sq_dev );
+	result->probability
+		= gsl_cdf_chisq_Q( result->value, observed_categories-1 );
 
 	return 0;
 }
