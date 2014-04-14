@@ -31,13 +31,61 @@
 #include <cstring>
 #include <cmath>
 #include <cassert>
+#include <stddef.h> // for offsetof
 
-#include "stattest.h"
 #include "analysis.h"
 #include "cat.h"
 #include "mix.h"
 #include "num.h"
 #include "args.h"
+#include "mtmatrix.h"
+
+const char *COVAR_TYPE_STR[] = {
+	"??",
+	"NN",
+	"CN",
+	"NC",
+	"CC",
+	"?!",
+	"!?"
+};
+
+const char *HypTestNames[HypothesisTestCount] = {
+	"None",
+	"FshrX",
+	"ChiSq",
+	"MannW",
+	"KrskW",
+	"Spear",
+	"Pears"
+};
+
+
+void clear_summary( struct Analysis *cs ) {
+
+	// Initializing the p-values is a bit paranoid, but filtering requires
+	// valid values in there. Initializing the log to a default non-empty
+	// value so that _emit'ters don't have to check for NULL and column
+	// counts are ALWAYS the same.
+
+	memset( cs, 0, offsetof(struct Analysis,log) );
+	// ...don't bother zeroing entire log buffer!
+
+	// All following is paranoia to insure initialization
+	// within calculations.
+
+	CLEAR_COMMON(          &(cs->common) );
+
+	cs->waste[0].unused = -1;
+	CLEAR_COMMON( &(cs->waste[0].common) );
+
+	cs->waste[1].unused = -1;
+	CLEAR_COMMON( &(cs->waste[1].common) );
+
+	cs->spearman_rho = nan("nan");
+	cs->log[0] = EOLOG;
+	cs->log[1] = '\0' ;
+}
 
 /**
  * These constants must match similar constants used in the Python
@@ -140,10 +188,13 @@ int analysis_init( int columns ) {
  * 5. An "auxiliary" Spearman rho is always computed unless one of 
  *    covariates is categorical with > 2 categories.
  */
-unsigned analysis_exec( 
-		unsigned int h1, const float *f1,  // feature 1
-		unsigned int h2, const float *f2,  // feature 2
-		struct CovarsSummary *res ) {
+unsigned analyze_pair( const struct mt_row_pair *pair,
+		struct Analysis *res ) {
+/*
+unsigned analyze_pair( 
+		MT_DESCRIPTOR d1, MT_ROW_PTR f1, 
+		MT_DESCRIPTOR d2, MT_ROW_PTR f2, 
+		struct Analysis *res ) */
 
 	static const char *TOO_MANY_CATS
 		= "error: category count (%d) in feature %d exceeds maximum (%d)\n";
@@ -151,14 +202,15 @@ unsigned analysis_exec(
 	// Extract the category counts from the (32-bit unsigned int) header.
 	// Bitfields are defined in the Python3 code prep.py.
 
-	const unsigned int C1 = (h1 & CATCOUNT_MASK) >> 16;
-	const unsigned int C2 = (h2 & CATCOUNT_MASK) >> 16;
+	const unsigned int C1 = pair->left.prop.categories;
+	const unsigned int C2 = pair->right.prop.categories;
 
 	unsigned status  = 0;
 	unsigned unused1 = 0;
 	unsigned unused2 = 0;
 	unsigned count   = 0;
 
+	memset( res, 0, sizeof(*res));
 	/**
 	 * Regardless of the classes of variables, if either C1 or C2 equals 
 	 * one, we're in a degenerate situation. Either:
@@ -184,8 +236,8 @@ unsigned analysis_exec(
 		return FAIL_TOOMANY;
 	} else {
 		res->kind = (enum CovarTypes)(
-		     ((h1 & CATEGORICAL_FLAG)?1:0)
-		   + ((h2 & CATEGORICAL_FLAG)?2:0) 
+		     (pair->left.prop.categories>0?1:0)
+		   + (pair->right.prop.categories>0?2:0) 
 		   + 1 );
 		assert( UnknownCovar < res->kind and res->kind <= CatCat );
 	}
@@ -204,8 +256,8 @@ unsigned analysis_exec(
 
 		for(int i = 0; i < max_sample_count; i++ ) {
 
-			const float F1 = f1[i];
-			const float F2 = f2[i];
+			const float F1 = reinterpret_cast<const float*>(pair->left.data)[i];
+			const float F2 = reinterpret_cast<const float*>(pair->right.data)[i];
 
 			if( _present(F1) ) {
 				if( _present(F2) ) {
@@ -247,8 +299,9 @@ unsigned analysis_exec(
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const unsigned int F1 
-					= reinterpret_cast<const unsigned int*>(f1)[i];
-				const float F2 = f2[i];
+					= pair->left.data[i];
+				const float F2 
+					= reinterpret_cast<const float*>(pair->right.data)[i];
 
 				if( _present(F2) ) {
 					if( _present(F1) ) {
@@ -271,9 +324,10 @@ unsigned analysis_exec(
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
-				const float F1 = f1[i];
+				const float F1 
+					= reinterpret_cast<const unsigned int*>(pair->left.data)[i];
 				const unsigned int F2 
-					= reinterpret_cast<const unsigned int*>(f2)[i];
+					= pair->right.data[i];
 
 				if( _present(F1) ) {
 					if( _present(F2) ) {
@@ -316,9 +370,9 @@ unsigned analysis_exec(
 		for(int i = 0; i < max_sample_count; i++ ) {
 
 			const unsigned int F1 
-				= reinterpret_cast<const unsigned int*>(f1)[i];
+				= pair->left.data[i];
 			const unsigned int F2 
-				= reinterpret_cast<const unsigned int*>(f2)[i];
+				= pair->right.data[i];
 
 			// Notice: Though we can't (currently) statistically compare the
 			// within-feature discrepancy in CC case as in case involving a

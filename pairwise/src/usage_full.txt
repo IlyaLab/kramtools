@@ -1,0 +1,154 @@
+USAGE_UNABRIDGED
+#ifdef _DEBUG
+%s version: %d.%d.%d (_DEBUG)
+#else
+%s version: %d.%d.%d
+#endif
+Usage...
+%s [ options ] <prepped_binary_matrix> [ <output_file> ]
+
+  --script | -s { <literal Lua script> | <filename> }
+
+	Read the specified Lua script. The argument may contain either inline 
+	Lua script or it may name a file containing Lua script. The script can
+	contain:
+	1. a function to interpret the feature classes of the rows in the 
+	   input matrix, and/or...
+	2. a coroutine to generate pairs of indices specifying the features/rows
+	   to analyze.
+	See below.
+
+============================================================================
+Input matrix options:
+============================================================================
+
+  --no-header | -h
+
+	The input matrix does not have a header (column names).
+
+  --no-row-labels | -r
+
+	The input matrix does not have row names.
+
+  --type-parser | -t  {<Lua function name>}
+
+	Call the specified function (in the Lua script) to infer feature type
+	(continuous, ordinal, categorical) from row-labels
+
+  --na-regex | -N  [ "%s" ]
+
+	A regular expression describing what one (or more) strings that indicate
+	missing data, i.e. "NA". See information on parsing library.
+
+============================================================================
+Feature (row) pair selection options:
+============================================================================
+
+  --pair | -P      <row1>,<row2>
+
+    Analyze the single comma-separated pair of features.
+	"rowX" can be either a feature name or an index.
+
+  --by-name | -n   { <filename> | "-" | "stdin" }
+
+	Read pair names from the specified file ('-' means stdin).
+
+  --by-index | -x  { <filename> | "-" | "stdin" }
+
+    Read pair of indices from the specified file ('-' means stdin).
+
+  --coroutine | -c
+
+	Indicates the name of a coroutine in the Lua script to call
+	for index pairs.
+
+  --dry-run | -D
+
+	Don't actually analyze; just emit the list of row indices produced
+	by the given Lua coroutine. This is for testing your Lua script.
+
+If none of the preceding options are given then analysis is run for
+all N-choose-2 pairs of features using the "natural" ordering.
+
+============================================================================
+Categorical (contingency table) options:
+============================================================================
+
+  --min-ct-cell <min>  [%d] 
+
+	Cull from the contingency table of categorical feature pairs 
+	rows/columns containing cells with fewer than <min> samples.
+
+  --min-mx-cell <min>  [%d] 
+
+	Treat mixed feature pairs where:
+	  1) the categorical feature is binary and
+	  2) one of the classes occurs in fewer than
+		 <min> samples
+	  ...as degenerate (errors).
+
+  --min-samples | -M <min> [%d]
+	Treat feature pairs in which there are fewer than <min> covariates
+	(after filtering NAs) as degenerate (errors).
+
+============================================================================
+Output filters:
+============================================================================
+
+  --p-value | -p <max>  [%.2f]
+  
+	Only emit associations with p-values <= max.
+
+  --format | -f  [ "%s" ]
+
+	One of "std" or "short". Default is "TCGA".
+
+  --fdr | -q
+
+	False-discovery rate control.
+
+  --strict | -S  [%s]
+
+	Treat warning conditions as errors and abort.
+	Warnings don't necessarily preclude continuing.
+
+  --verbosity | -v <int>  [%d]
+
+	Controls emission of secondary results and warnings.  
+	0 => "nothing extra".
+
+#ifdef _DEBUG
+  --debug
+
+    This option accepts strings to control debug functionality.
+	See the source code.
+#endif
+
+Notes:
+. Options for which no default is listed either have no default or it is
+  the natural opposite of the option.
+. "Index" everywhere actually means offset, i.e. 0-based ordinals.
+. Values in brackets '[ ]' above are defaults.
+. Categorical features MUST have <= %d categories.
+. Integer row specifiers are always offsets (0-based), so the 1st row is
+  row 0.
+. Parsing and preprocessing of the input matrix is handled by an independent
+  library. See its documentation for further information.
+Pair selection:
+. Pairs are either
+  -- explicitly specified (by name or by index) OR
+  -- implicitly specified as integer ranges for a pair of nested
+     loops.
+. If the --explicit option is used, input is freeform.
+  -- Every contiguous sequence of decimal digits in the stream is
+     treated as a row index.
+  -- ANY non-digit character(s) can be used as separators, and
+     no distinction is made between the separators within pairs
+     and separators between pairs.
+  -- Pairs of indices ADJACENT IN THE STREAM are analyzed greedily.
+. The --byname option is less flexible. Its use requires that each
+  line of input contain exactly two tab-separated strings.
+. The --dry-run option allows you to try Lua coroutines without
+  any analysis actually occuring; only pairs of indices are emitted.
+Bug rkramer@systemsbiology.org with troubles.
+

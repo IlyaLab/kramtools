@@ -5,9 +5,6 @@
 #include <stdbool.h>
 #include <math.h>
 
-#include "stattest.h"
-#include "global.h"
-
 /**
   * "Sheila's format"
   * 1  -- feature A

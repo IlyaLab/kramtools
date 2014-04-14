@@ -14,3 +14,7 @@ ut_min2 : min2.c
 
 ut_strset : strset.c
 	gcc -o $@ -std=gnu99 -D_UNIT_TEST_STRSET_ $^
+
+ut_dsp : dsp.c
+	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_DSP_ $^
+

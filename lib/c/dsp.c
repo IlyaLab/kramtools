@@ -7,12 +7,15 @@
   */
 
 #include <stdio.h>
+#include <string.h>
 #include <ctype.h>
 
-int next_decimal_integers( FILE *fp, int *index, int n ) {
+int get_base10_ints( FILE *fp, int *index, int n ) {
 
 	int i = 0;
 	int digits = 0;
+
+	memset( index, 0, n*sizeof(int) );
 
 	while( i < n ) {
 		const int c
@@ -47,7 +50,7 @@ int main( int argc, char *argv[] ) {
 	int *i
 		= alloca( S );
 	memset( i, 0, S );
-	while( next_decimal_integers( stdin, i, N ) == N ) {
+	while( get_base10_ints( stdin, i, N ) == N ) {
 		int n = 0;
 		printf( "%d", i[n++] );
 		while( n < N ) printf( "\t%d", i[n++] );
