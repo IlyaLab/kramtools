@@ -1,9 +1,5 @@
 USAGE_UNABRIDGED
-#ifdef _DEBUG
-%s version: %d.%d.%d (_DEBUG)
-#else
-%s version: %d.%d.%d
-#endif
+%s version: %d.%d.%d %s
 Usage...
 %s [ options ] <prepped_binary_matrix> [ <output_file> ]
 
@@ -24,16 +20,31 @@ Input matrix options:
 
   --no-header | -h
 
-	The input matrix does not have a header (column names).
+	Treat all lines of the input matrix as data. Otherwise the first non-
+	comment, non-blank line is assumed to be a header and ignored.
 
   --no-row-labels | -r
 
-	The input matrix does not have row names.
+	The input matrix does not have row names; treat the first field on each
+	line as data.
 
   --type-parser | -t  {<Lua function name>}
 
-	Call the specified function (in the Lua script) to infer feature type
-	(continuous, ordinal, categorical) from row-labels
+	Call the specified function (in the Lua script) to infer feature class.
+	By default, if row names are present the FIRST CHARACTER of each row
+	lable is treated as the feature class identifier for that row:
+		  B: boolean
+		C|F: categorical (factor)
+		  O: ordinal
+		  N: numeric (continuous)
+	These classes are implied by the following input representations:
+		    boolean: symbolic (strings) or integral data
+		categorical: symbolic (strings) or integral data
+		    ordinal: integral data
+		    numeric: floating-point (presence of '.' or exponential notation)
+	If the argument of --type-parser is the special string "%s" 
+	feature classes are inferred from syntax using the preceding 
+	definitions.
 
   --na-regex | -N  [ "%s" ]
 
@@ -57,10 +68,10 @@ Feature (row) pair selection options:
 
     Read pair of indices from the specified file ('-' means stdin).
 
-  --coroutine | -c
+  --coroutine | -c  [%s]
 
 	Indicates the name of a coroutine in the Lua script to call
-	for index pairs.
+	for index pairs. The default is sough
 
   --dry-run | -D
 

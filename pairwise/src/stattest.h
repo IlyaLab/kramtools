@@ -1,18 +1,7 @@
 
 #ifndef _stattest_h_
 #define _stattest_h_
-/*
-enum Statistic {
-	Unknown = 0,
-	FisherExact,
-	ChiSquare,
-	MannWhitney,
-	KruskalWallis,
-	Spearman,
-	Pearson,
-	StatisticCount
-};
-*/
+
 /**
   * Encapsulates the 3 elements common to all statistical tests and 
   * procedures: sample count, statistic, and probability of the statistic 
@@ -22,21 +11,21 @@ enum Statistic {
 
 struct Statistic {
 
-	const char    *name;
-	unsigned int   sample_count;
-	double         value;
-	double         probability;
+	const char  *name;
+	unsigned int sample_count;
+	double       value;
+	double       probability;
 
 	/**
 	  * This is for recording things like minimum cell count
 	  * in a contingency table or number of ties in data.
 	  * Content depends on .name.
 	  */
-	double         extra[ 4 ];
+	double       extra[ 4 ];
 
 	/**
 	  */
-	char           log[ MAXLEN_STATRESULT_LOG+1 ];
+	char         log[ MAXLEN_STATRESULT_LOG+1 ];
 };
 
 #endif

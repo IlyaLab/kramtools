@@ -35,6 +35,8 @@
 #include <getopt.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <ctype.h>
+#include <err.h>
 
 #include <gsl/gsl_errno.h>
 
@@ -62,8 +64,6 @@ int get_base10_ints( FILE *fp, int *index, int n );
 FILE *g_fp_output = NULL;
 FILE *g_fp_cache = NULL;
 
-struct CovariateAnalysis g_summary;
-
 size_t g_COLUMNS = 0;
 /*
 void (*g_format)( 
@@ -79,6 +79,7 @@ GLOBAL unsigned  arg_min_sample_count = 2; // < 2 NEVER makes sense
 GLOBAL bool g_sigint_received          = false; // fdr.d needs access
 #undef  GLOBAL
 
+static const char *TYPE_PARSER_INFER   = "auto";
 static double arg_q_value              = 0.0;
 #define USE_FDR_CONTROL (arg_q_value > 0.0)
 
@@ -92,6 +93,7 @@ static const char *opt_single_pair     = NULL;
 
 static const char *opt_pairlist_source = NULL;
 static bool        opt_by_name         = false;
+static const char *DEFAULT_COROUTINE   = "pair_generator";
 static const char *opt_coroutine       = NULL;
 static bool        opt_dry_run         = false;
 
@@ -121,7 +123,7 @@ static bool  dbg_silent     = false;
 /**
   * Records the number of each test type that are filtered.
   */
-static unsigned _filtered[ CovarTypeCount ];
+// TODO: static unsigned _filtered[ CovarTypeCount ];
 
 /**
   * The binary matrix is accessed at runtime through this variable.
@@ -166,12 +168,9 @@ void panic( const char *src, int line ) {
   *
   * All three of these methods must have the same signature.
   */
-#define ANALYSIS_RESULTS_RCVR_SIG const struct mt_row_pair *rp, \
-	unsignd astat,\
-	struct CovariateAnalysis *results,\
-	FILE *dest 
+#define ANALYSIS_FN_SIG const struct mt_row_pair *pair
 
-typedef void (*ANALYSIS_RESULT_PROCESSOR)( ANALYSIS_RESULTS_RCVR_SIG );
+typedef void (*ANALYSIS_FN)( ANALYSIS_FN_SIG );
 
 
 
@@ -179,7 +178,11 @@ typedef void (*ANALYSIS_RESULT_PROCESSOR)( ANALYSIS_RESULTS_RCVR_SIG );
  * Encapsulates all the decision making regarding actual emission of
  * results.
  */
-static void _filter( const struct mt_row_pair *rp, unsigned astat ) {
+static void _filter( ANALYSIS_FN_SIG ) {
+
+	struct CovariateAnalysis covan;
+	memset( &covan, 0, sizeof(covan) );
+	covan_exec( pair, &covan );
 
 #ifdef _DEBUG
 	if( ! dbg_silent ) {
@@ -189,13 +192,12 @@ static void _filter( const struct mt_row_pair *rp, unsigned astat ) {
 #ifdef _DEBUG
 			dbg_exhaustive || 
 #endif
-			(( results.common.P <= opt_p_value ) && ( status == 0 ) ) 
+			(( covan.result.probability <= opt_p_value ) && ( covan.status == 0 ) ) 
 
 			) {
 			//g_format( a, b, status );
 		} else {
-			assert( g_summary.kind < CovarTypeCount );
-			_filtered[ g_summary.kind ] += 1;
+			//_filtered[ g_summary.kind ] += 1;
 		}
 
 #ifdef _DEBUG
@@ -203,7 +205,8 @@ static void _filter( const struct mt_row_pair *rp, unsigned astat ) {
 #endif
 }
 
-static ANALYSIS_RESULT_PROCESSOR _process_pair_result = _filter;
+static ANALYSIS_FN _analyze = _filter;
+
 
 static void _error_handler(const char * reason,
                         const char * file,
@@ -246,14 +249,17 @@ static int _cmp_fdr_cache_records( const void *pvl, const void *pvr ) {
   * with the _emit static in main. 
   * TODO: Revisit this.
   */
-static void fdr_aggregate( unsigned a, unsigned b, unsigned status ) {
-	// ANALYSIS_RESULTS_RCVR_SIG
+static void _fdr_cache( ANALYSIS_FN_SIG ) {
 
-	if( status == 0 && g_summary.common.P <= opt_p_value ) {
+	struct CovariateAnalysis covan;
+	memset( &covan, 0, sizeof(covan) );
+	covan_exec( pair, &covan );
+
+	if( covan.status == 0 && covan.result.probability <= opt_p_value ) {
 		struct FDRCacheRecord rec = {
-			.p = g_summary.common.P,
-			.a = a,
-			.b = b
+			.p = covan.result.probability,
+			.a = pair->l.offset,
+			.b = pair->r.offset
 		};
 		fwrite( &rec, sizeof(rec), 1, g_fp_cache );
 	}
@@ -284,13 +290,10 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 		// TODO:const unsigned *pa = g_matrix_body + g_COLUMNS*prec->a;
 		// TODO:const unsigned *pb = g_matrix_body + g_COLUMNS*prec->b;
 
-		covan_clear( &g_summary );
 /*
-   TODO
-		const unsigned status = analysis_exec( 
-				*pa, (const float*)(pa+1),
-				*pb, (const float*)(pb+1),
-				&g_summary );
+		struct CovariateAnalysis covan;
+		memset( &covan, 0, sizeof(covan) );
+		covan_exec( pair, &covan );
 */
 		//g_format( prec->a, prec->b, status );
 
@@ -339,8 +342,8 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 				continue; // no reason we -can't- continue
 		}
 
-		fpair.left.name  = left;
-		fpair.right.name = right;
+		fpair.l.name  = left;
+		fpair.r.name = right;
 
 		if( mtm_fetch_by_name( &_matrix, &fpair ) != 2 ) {
 
@@ -349,16 +352,15 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 				"\t1) %s\n"
 				"\t2) %s\n"
 				"\t...not found.\n",
-				fpair.left.name,
-				fpair.right.name );
+				fpair.l.name,
+				fpair.r.name );
 			if( opt_warnings_are_fatal ) 
 				break;
 			else
 				continue; // no reason we -can't- continue
 		}
 
-		_process_pair_result( &fpair, 
-				covan_exec( &fpair, &g_summary ) );
+		_analyze( &fpair );
 	}
 
 	if( left )
@@ -368,7 +370,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 }
 
 
-static int /*ANUM*/ _covan_exec_list( FILE *fp ) {
+static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 
 	struct mt_row_pair fpair;
 
@@ -376,16 +378,16 @@ static int /*ANUM*/ _covan_exec_list( FILE *fp ) {
 
 	while( get_base10_ints( fp, arr, 2 ) == 2 ) {
 
-		fpair.left.offset  = arr[0];
-		fpair.right.offset = arr[1];
+		fpair.l.offset  = arr[0];
+		fpair.r.offset = arr[1];
 
 		if( mtm_fetch_by_offset( &_matrix, &fpair ) != 2 ) {
 			fprintf( stderr, 
 				"error: one of row indices (%d,%d) not in [0,%d)\n"
 				"\tjust before byte offset %ld in the stream.\n"
 				"\tAborting...\n",
-				fpair.left.offset,
-				fpair.right.offset,
+				fpair.l.offset,
+				fpair.r.offset,
 				_matrix.rows,
 				ftell( fp ) );
 			if( opt_warnings_are_fatal ) 
@@ -394,22 +396,19 @@ static int /*ANUM*/ _covan_exec_list( FILE *fp ) {
 				continue; // no reason we -can't- continue
 		}
 		
-		_process_pair_result( &fpair, 
-				covan_exec( &fpair, &g_summary ) );
+		_analyze( &fpair );
 	}
 	return 0;
 }
 
 
 #ifdef HAVE_LUA
-static int /*ALUA*/ _analyze_generated_pair_list(/*Lua stuff */) {
+static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 
 	struct mt_row_pair fpair;
 
 	while( false ) {
-		_process_pair_result( &fpair, 
-				covan_exec( &fpair, &g_summary ) );
-
+		_analyze( &fpair );
 		if( g_sigint_received ) {
 			time_t now = time(NULL);
 			fprintf( stderr, "# main analysis loop interrupted @ %s", ctime(&now) );
@@ -443,28 +442,27 @@ static int /*AALL*/ _analyze_all_pairs() {
 
 	assert( ! _matrix.lexigraphic_order /* should be row order */ );
 
-	fpair.left.data = _matrix.data;
-	lrid            = _matrix.row_map;
+	fpair.l.data = _matrix.data;
+	lrid         = _matrix.row_map;
 
-	for(fpair.left.offset = 0; 
-		fpair.left.offset < _matrix.rows; 
-		fpair.left.offset++ ) {
+	for(fpair.l.offset = 0; 
+		fpair.l.offset < _matrix.rows; 
+		fpair.l.offset++ ) {
 
-		fpair.left.name = lrid ? lrid->string : "";
-		fpair.left.prop = _matrix.prop[ fpair.left.offset ];
+		fpair.l.name = lrid ? lrid->string : "";
+		fpair.l.prop = _matrix.prop[ fpair.l.offset ];
 
-		fpair.right.data = fpair.left.data + _matrix.columns;
+		fpair.r.data = fpair.l.data + _matrix.columns;
 		rrid = lrid + 1;
 
-		for(fpair.right.offset = fpair.left.offset+1; 
-			fpair.right.offset < _matrix.rows; 
-			fpair.right.offset++ ) {
+		for(fpair.r.offset = fpair.l.offset+1; 
+			fpair.r.offset < _matrix.rows; 
+			fpair.r.offset++ ) {
 
-			fpair.right.name = rrid ? rrid->string : "";
-			fpair.right.prop = _matrix.prop[ fpair.right.offset ];
+			fpair.r.name = rrid ? rrid->string : "";
+			fpair.r.prop = _matrix.prop[ fpair.r.offset ];
 
-			_process_pair_result( &fpair, 
-					covan_exec( &fpair, &g_summary ) );
+			_analyze( &fpair );
 
 			if( g_sigint_received ) {
 				time_t now = time(NULL);
@@ -472,16 +470,29 @@ static int /*AALL*/ _analyze_all_pairs() {
 				break;
 			}
 
-			fpair.right.data += _matrix.columns;
+			fpair.r.data += _matrix.columns;
 			if( rrid )  rrid += 1;
 
 		} // inner for
 
-		fpair.left.data += _matrix.columns;
+		fpair.l.data += _matrix.columns;
 		if( lrid ) lrid += 1;
 	}
 	return 0;
 }
+
+
+/**
+  * <source> may be literal Lua code or a filename reference.
+  */
+static int _load_script( const char *source, lua_State *state ) {
+
+	struct stat info;
+	return (access( source, R_OK ) == 0) && (stat( source, &info ) == 0)
+		? luaL_dofile(   state, source )
+		: luaL_dostring( state, source );
+}
+
 
 /***************************************************************************
   * Online help
@@ -495,28 +506,20 @@ static const char *_YN( bool y ) {
 static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 
 	extern const char *USAGE_UNABRIDGED;
-	extern const char *USAGE_ABBREV;
+	//extern const char *USAGE_ABBREV;
 
-	if( exhaustive )
+	if( exhaustive || ! exhaustive )
 		fprintf( fp, USAGE_UNABRIDGED,
 			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
+#ifdef _DEBUG
+			"(DEBUG)",
+#else
+			"",
+#endif
 			exename,
+			TYPE_PARSER_INFER,
 			opt_na_regex,
-
-			arg_min_cell_count,
-			arg_min_sample_count,
-			arg_min_mixb_count,
-
-			opt_p_value,
-			opt_format,
-			_YN(opt_warnings_are_fatal),
-			arg_verbosity,
-			_MAX_CATEGORIES );
-	else
-		fprintf( fp, USAGE_UNABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
-			exename,
-			opt_na_regex,
+			DEFAULT_COROUTINE,
 
 			arg_min_cell_count,
 			arg_min_sample_count,
@@ -560,7 +563,7 @@ int main( int argc, char *argv[] ) {
 	  * Mandatory initializations.
 	  */
 
-	memset( _filtered, 0, sizeof(_filtered) );
+	//memset( _filtered, 0, sizeof(_filtered) );
 	memset( &_matrix,  0, sizeof(struct mtmatrix) );
 
 	/**
@@ -602,7 +605,7 @@ int main( int argc, char *argv[] ) {
 	do {
 
 		static const char *CHAR_OPTIONS 
-			= "s:hrt:N:P:n:x:c:D:M:p:f:q:v:?X";
+			= "s:hrt:N:P:n:x:c:DM:p:f:q:v:?X";
 
 		static struct option LONG_OPTIONS[] = {
 			{"script",        required_argument,  0,'s'},
@@ -615,7 +618,7 @@ int main( int argc, char *argv[] ) {
 			{"by-name",       required_argument,  0,'n'},
 			{"by-index",      required_argument,  0,'x'},
 			{"coroutine",     required_argument,  0,'c'},
-			{"dry-run",       required_argument,  0,'D'},
+			{"dry-run",       no_argument,        0,'D'},
 
 			{"min-ct-cell",   required_argument,  0, 256 }, // no short equivalents
 			{"min-mx-cell",   required_argument,  0, 257 }, // no short equivalents
@@ -710,15 +713,14 @@ int main( int argc, char *argv[] ) {
 
 		case 'f': // format
 			if( strncmp("std",optarg, 3 ) == 0 )
-				g_format = format_standard;
+				;// TODO: g_format = format_standard;
 			else
 			if( strncmp("short",optarg, 5 ) == 0 )
-				g_format = format_abbreviated;
+				;// TODO: g_format = format_abbreviated;
 			break;
 
 		case 'q':
 			arg_q_value = atof( optarg );
-			_process_pair_result = fdr_aggregate;
 			break;
 
 		case 'v': // verbosity
@@ -737,8 +739,8 @@ int main( int argc, char *argv[] ) {
 
 #ifdef _DEBUG
 		case 258:
-			dbg_exhaustive = strchr( optarg, "X" ) != NULL;
-			dbg_silent     = strchr( optarg, "S" ) != NULL;
+			dbg_exhaustive = strchr( optarg, 'X' ) != NULL;
+			dbg_silent     = strchr( optarg, 'S' ) != NULL;
 			break;
 #endif
 		case -1: // ...signals no more options.
@@ -753,19 +755,71 @@ int main( int argc, char *argv[] ) {
 
 #ifdef HAVE_LUA
 
-	L = luaL_newstate();
-	luaL_openlibs(L);
-
 	/**
-	  * Load Lua script and execute a dry-run if applicable.
-	  * This is in advance of other argument validation since other
-	  * arguments will be ignored...
+	  * Load the Lua from file or command line before anything else.
 	  */
 
-	if( opt_dry_run > 0 ) {
-		int a, b;
-		exit(0);
+	if( opt_script ) {
+
+		L = luaL_newstate();
+		if( L ) {
+			luaL_openlibs(L);
+			if( _load_script( opt_script, L ) != LUA_OK ) {
+				lua_close(L);
+				errx( -1, "failed executing Lua \"%s\": %s", 
+					opt_script, lua_tostring(L,-1) );
+			}
+		} else
+			errx( -1, "failed creating Lua statespace" );
+
+		// Additionally, if a Lua script was provided but no coroutine
+		// was specified, see whether a function with the default coroutine
+		// name exists...
+
+		if( NULL == opt_coroutine ) {
+
+			lua_getglobal( L, DEFAULT_COROUTINE );
+
+			if( ! lua_isnil( L, -1 ) )
+				opt_coroutine = DEFAULT_COROUTINE;
+
+			// Non-existence of DEFAULT_COROUTINE is not an error;
+			// we assume user does NOT intend Lua to generate the pairs.
+
+			lua_pop( L, 1 );
+		}
+
+		/**
+		  * Load Lua script and execute a dry-run if applicable.
+		  * This is in advance of other argument validation since other
+		  * arguments will be ignored...
+		  */
+
+		if( opt_dry_run ) {
+			int isnum, lua_status = LUA_YIELD;
+			const char *coroutine
+				= opt_coroutine 
+				? opt_coroutine 
+				: DEFAULT_COROUTINE;
+			lua_getglobal( L, coroutine );
+			if( lua_isnil( L, -1 ) )
+				errx( -1, "%s not defined (in Lua's global namespace)", 
+					coroutine );
+			while( lua_status == LUA_YIELD ) {
+				lua_status = lua_resume( L, NULL, 0 );
+				if( lua_status <= LUA_YIELD /* OK == 0, YIELD == 1*/ ) {
+					const int b = lua_tonumberx( L, -1, &isnum );
+					const int a = lua_tonumberx( L, -2, &isnum );
+					lua_pop( L, 2 );
+					fprintf( stdout, "%d %d\n", a, b );
+				} else
+					fputs( lua_tostring(L,-1), stderr );
+			}
+
+			exit(0);
+		}
 	}
+
 #endif
 
 	/**
@@ -795,7 +849,7 @@ int main( int argc, char *argv[] ) {
 		break;
 
 	case 1:
-		if( access( argv[ optind ], R_OK ) ) {
+		if( access( argv[ optind ], R_OK ) == 0 ) {
 			i_file = argv[ optind++ ];
 			o_file = "stdout";
 		} else {
@@ -815,7 +869,8 @@ int main( int argc, char *argv[] ) {
 		abort();
 	}
 
-	if( strcmp( opt_pairlist_source, i_file ) == 0 ) {
+	if( opt_pairlist_source != NULL 
+			&& strcmp( opt_pairlist_source, i_file ) == 0 ) {
 		fprintf( stderr, 
 			"error: stdin specified (or implied) for both pair list and the input matrix\n" );
 		abort();
@@ -847,6 +902,10 @@ int main( int argc, char *argv[] ) {
 		fclose( fp );
 	}
 
+	if( opt_dry_run ) { // a second possible 
+		exit(0);
+	}
+
 	if( ! arg_webservice ) {
 		if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
 			fprintf( stderr,
@@ -868,7 +927,6 @@ int main( int argc, char *argv[] ) {
 	if( arg_verbosity > 0 ) 
 		fprintf( g_fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
 
-
 	if( opt_single_pair ) {
 
 	} else
@@ -883,7 +941,7 @@ int main( int argc, char *argv[] ) {
 			int err
 				= opt_by_name 
 				? _analyze_named_pair_list( fp )
-				: _covan_exec_list( fp );
+				: _analyze_pair_list( fp );
 			fclose( fp );
 		} else
 			fprintf( stderr, "error" );
@@ -900,7 +958,7 @@ int main( int argc, char *argv[] ) {
 
 #ifdef HAVE_LUA
 		if( opt_coroutine )
-			_analyze_generated_pair_list(/*Lua stuff */);
+			_analyze_generated_pair_list( L );
 		else
 #endif
 			_analyze_all_pairs();
@@ -920,11 +978,13 @@ int main( int argc, char *argv[] ) {
 	}
 
 	if( arg_verbosity > 0 ) {
-		int i;
+		//int i;
 		fprintf( g_fp_output, "# Filter counts follow:\n" );
+#ifdef HAVE_ANALYSIS
 		for(i = 0; i < (int)CovarTypeCount; i++ ) {
 			// TODO: fprintf( g_fp_output, "# %s %d\n", COVAR_TYPE_STR[i], _filtered[i] );
 		}
+#endif
 	}
 
 	fclose( g_fp_output );

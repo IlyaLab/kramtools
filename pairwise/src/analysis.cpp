@@ -37,7 +37,6 @@
 #include <cstring>
 #include <cmath>
 #include <cassert>
-//#include <stddef.h> // for offsetof
 
 #include "stattest.h"
 #include "analysis.h"
@@ -46,56 +45,6 @@
 #include "num.h"
 #include "args.h"
 #include "mtmatrix.h"
-/*
-const char *COVAR_TYPE_STR[] = {
-	"??",
-	"NN",
-	"CN",
-	"NC",
-	"CC",
-	"?!",
-	"!?"
-};
-
-const char *HypTestNames[HypothesisTestCount] = {
-	"None",
-	"FshrX",
-	"ChiSq",
-	"MannW",
-	"KrskW",
-	"Spear",
-	"Pears"
-};
-*/
-
-void covan_clear( struct CovariateAnalysis *cs ) {
-#if 0
-	// Initializing the p-values is a bit paranoid, but filtering requires
-	// valid values in there. Initializing the log to a default non-empty
-	// value so that _emit'ters don't have to check for NULL and column
-	// counts are ALWAYS the same.
-
-	memset( cs, 0, offsetof(struct CovariateAnalysis,log) );
-	// ...don't bother zeroing entire log buffer!
-
-	// All following is paranoia to insure initialization
-	// within calculations.
-
-	CLEAR_COMMON(          &(cs->common) );
-
-	cs->waste[0].unused = -1;
-	CLEAR_COMMON( &(cs->waste[0].common) );
-
-	cs->waste[1].unused = -1;
-	CLEAR_COMMON( &(cs->waste[1].common) );
-
-	cs->spearman_rho = nan("nan");
-	cs->log[0] = EOLOG;
-	cs->log[1] = '\0' ;
-#else
-	memset( cs, 0, sizeof(struct CovariateAnalysis) );
-#endif
-}
 
 /**
   * Most arrays are pre-allocated and sized according to this variable.
@@ -191,41 +140,38 @@ int covan_init( int columns ) {
  */
 int covan_exec( 
 		const struct mt_row_pair *pair,
-		struct CovariateAnalysis *res ) {
-
-	static const char *TOO_MANY_CATS
-		= "error: category count (%d) in feature %d exceeds maximum (%d)\n";
-
-	// Extract the category counts from the (32-bit unsigned int) header.
-	// Bitfields are defined in the Python3 code prep.py.
+		struct CovariateAnalysis *covan ) {
 
 	const unsigned int C1
-		= pair->left.prop.categories;
+		= pair->l.prop.categories;
 	const unsigned int C2
-		= pair->right.prop.categories;
+		= pair->r.prop.categories;
 
 	unsigned unused1 = 0;
 	unsigned unused2 = 0;
 	unsigned count   = 0;
-
-	covan_clear( res );
 
 	/**
 	  * Determine feature classes and check for univariate degeneracy.
 	  * Univariate degeneracy precludes further analysis. 
 	  */
 
-	if( pair->left.prop.constant || pair->right.prop.constant ) {
-		res->status = FAIL_E_DEGEN;
+	if( pair->l.prop.constant || pair->r.prop.constant ) {
+		covan->status = FAIL_E_DEGEN;
 		return -1;
 	} else
 	if( C1 > _MAX_CATEGORIES || C2 > _MAX_CATEGORIES ) {
-		res->status = FAIL_TOOMANY;
+		covan->status = FAIL_TOOMANY;
 		return -1;
 	}
 
-	res->lclass = C1 > 0 ? Categorical : Continuous;
-	res->rclass = C2 > 0 ? Categorical : Continuous;
+	// Because we don't anticipate ordinal features yet...
+
+	assert( (pair->l.prop.integral  > 0) == (C1 > 0) );
+	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
+
+	covan->lclass = C1 > 0 ? Categorical : Continuous;
+	covan->rclass = C2 > 0 ? Categorical : Continuous;
 
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
@@ -233,18 +179,25 @@ int covan_exec(
 	_Lwaste.clear( 2 ); // Secondary analyses ALWAYS involve...
 	_Rwaste.clear( 2 ); // ...only categories {0,1}.
 
-	if( res->lclass == res->rclass ) {
+	// No matter what tests are executed there are only three fundamental
+	// cases:
+	// 1. categorical-categorical
+	// 2. categorical-continuous
+	// 3. continuous-continuous
+	// Ordinal, which would double the cases, are not currently handled.
 
-		if( res->lclass == Continuous ) {
+	if( covan->lclass == covan->rclass ) {
+
+		if( covan->lclass == Continuous ) {
 
 			_naccum.clear();
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const float F1
-					= reinterpret_cast<const float*>(pair->left.data)[i];
+					= reinterpret_cast<const float*>(pair->l.data)[i];
 				const float F2
-					= reinterpret_cast<const float*>(pair->right.data)[i];
+					= reinterpret_cast<const float*>(pair->r.data)[i];
 
 				if( _present(F1) ) {
 					if( _present(F2) ) {
@@ -266,16 +219,16 @@ int covan_exec(
 			count = _naccum.size();
 
 			if( not _naccum.complete() ) {
-				res->status |= FAIL_L_DEGEN;
+				covan->status |= FAIL_L_DEGEN;
 			} else
 			if( count >= arg_min_sample_count ) {
-				_naccum.spearman_correlation( &res->correlation );
+				_naccum.spearman_correlation( &covan->result );
 			} else
-				res->status |= FAIL_SAMPLES;
+				covan->status |= FAIL_SAMPLES;
 
 		} else {
 
-			assert( res->lclass == Categorical );
+			assert( covan->lclass == Categorical );
 
 			_caccum.clear( C1, C2 );
 
@@ -286,9 +239,9 @@ int covan_exec(
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const unsigned int F1 
-					= pair->left.data[i];
+					= pair->l.data[i];
 				const unsigned int F2 
-					= pair->right.data[i];
+					= pair->r.data[i];
 
 				// Notice: Though we can't (currently) statistically compare the
 				// within-feature discrepancy in CC case as in case involving a
@@ -311,35 +264,35 @@ int covan_exec(
 			count = _caccum.size();
 
 			if( not _caccum.complete() ) {
-				res->status |= FAIL_L_DEGEN;
+				covan->status |= FAIL_L_DEGEN;
 			} else {
-				_caccum.cullBadCells( res->association.log, MAXLEN_STATRESULT_LOG );
+				_caccum.cullBadCells( covan->result.log, MAXLEN_STATRESULT_LOG );
 				if( count >= arg_min_sample_count ) {
 					if( _caccum.is2x2() ) {
-						_caccum.fisher_exact( &res->association );
-						res->correlation.value = _caccum.spearman_rho();
+						_caccum.fisher_exact( &covan->result );
+						covan->sign = 0;// TODO: sign()
 					} else {
-						_caccum.chi_square( &res->association );
+						_caccum.chi_square( &covan->result );
 					}
 				} else
-					res->status |= FAIL_SAMPLES;
+					covan->status |= FAIL_SAMPLES;
 			}
 		}
 
 	} else { // features are not of same class
 
-		if( res->lclass == Categorical ) {
+		if( covan->lclass == Categorical ) {
 
-			assert( res->rclass == Continuous );
+			assert( covan->rclass == Continuous );
 
 			_maccum.clear( C1 );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const unsigned int F1 
-					= pair->left.data[i];
+					= pair->l.data[i];
 				const float F2 
-					= reinterpret_cast<const float*>(pair->right.data)[i];
+					= reinterpret_cast<const float*>(pair->r.data)[i];
 
 				if( _present(F2) ) {
 					if( _present(F1) ) {
@@ -358,16 +311,16 @@ int covan_exec(
 
 		} else {
 
-			assert( res->lclass == Continuous && res->rclass == Categorical );
+			assert( covan->lclass == Continuous && covan->rclass == Categorical );
 
 			_maccum.clear( C2 );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const float F1 
-					= reinterpret_cast<const unsigned int*>(pair->left.data)[i];
+					= reinterpret_cast<const unsigned int*>(pair->l.data)[i];
 				const unsigned int F2 
-					= pair->right.data[i];
+					= pair->r.data[i];
 
 				if( _present(F1) ) {
 					if( _present(F2) ) {
@@ -388,33 +341,36 @@ int covan_exec(
 		count = _maccum.size();
 
 		if( not _maccum.complete() ) {
-			res->status |= FAIL_L_DEGEN;
+			covan->status |= FAIL_L_DEGEN;
 		} else
 		if( count >= arg_min_sample_count ) {
-			_maccum.kruskal_wallis( &res->association );
+			_maccum.kruskal_wallis( &covan->result );
 			if( _maccum.categoricalIsBinary() )
-				res->correlation.value = _maccum.spearman_rho();
+				covan->sign = 0;// TODO: sign()
 		} else
-			res->status |= FAIL_SAMPLES;
+			covan->status |= FAIL_SAMPLES;
 	}
+
+	/**
+	  * Some tests are ordered
+	  */
 
 	/**
 	  * post-filtering counts should always be valid whatever 
 	  * else has occurred.
 	  */
-	//res->common.N        = count;
-	//res->waste[0].unused = unused1;
-	//res->waste[1].unused = unused2;
+	covan->waste[0].unused = unused1;
+	covan->waste[1].unused = unused2;
 
 	// Characterize how the unused parts of the two samples might have
 	// affected the statistics computed on their "overlap".
 
 	if( _Lwaste.complete() )
-		_Lwaste.kruskal_wallis( res->waste + 0 );
+		_Lwaste.kruskal_wallis( &(covan->waste[0].result) );
 
 	if( _Rwaste.complete() )
-		_Rwaste.kruskal_wallis( res->waste + 1 );
+		_Rwaste.kruskal_wallis( &(covan->waste[1].result) );
 
-	return res->status ? -1 : 0;
+	return covan->status ? -1 : 0;
 }
 

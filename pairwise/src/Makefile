@@ -18,7 +18,7 @@ ARCHIVE_NAME=pairwise
 ############################################################################
 
 GSLINC=$(HOME)/include
-GSLLIB=$(HOME)/lib
+LIBDIR=$(HOME)/lib
 
 ############################################################################
 # Sources
@@ -33,8 +33,8 @@ SOURCES=main.c \
 
 #	format.c
 
-LIBDIR=../../lib/c
-CONTRIB=$(LIBDIR)/contrib
+SRCLIB=../../lib/c
+CONTRIB=$(SRCLIB)/contrib
 MD5DIR=$(CONTRIB)/md5
 
 LIBSOURCES=dsp.c \
@@ -42,7 +42,7 @@ LIBSOURCES=dsp.c \
 	fisher.c \
 	min2.c
 
-SOURCES+=$(addprefix $(LIBDIR)/,$(LIBSOURCES))
+SOURCES+=$(addprefix $(SRCLIB)/,$(LIBSOURCES))
 
 $(warning $(SOURCES) )
 
@@ -64,9 +64,14 @@ else
 CFLAGS+=-O3 -DNDEBUG
 endif
 
-CFLAGS+=-I$(LIBDIR)
-CFLAGS+=-I$(GSLINC) -D_MAX_CATEGORIES=32 -DITER_SPEC_BUFFER_LEN=1024
-LDFLAGS+=-L$(GSLLIB)
+CFLAGS+=-I$(SRCLIB)
+CFLAGS+=-I$(GSLINC) -D_MAX_CATEGORIES=32
+CFLAGS+=-I../../mtm
+
+LDFLAGS+=-L$(LIBDIR)
+
+CFLAGS+=-DHAVE_LUA
+LDFLAGS+=-llua
 
 ############################################################################
 # Primary
@@ -79,7 +84,7 @@ usage_full.c : usage_full.txt
 	sed -f usage.sed $< > $@
 
 $(VERSIONED_EXECUTABLE) : $(SOURCES) usage_full.c
-	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm
+	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
 
 unittests : $(UNITTESTS)
 
@@ -92,14 +97,14 @@ ut_bvr : bvr.c
 ut_mix : mix.cpp
 	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_MIX_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_cat : cat.cpp $(addprefix $(LIBDIR)/,fisher.c min2.c)
+ut_cat : cat.cpp $(addprefix $(SRCLIB)/,fisher.c min2.c)
 	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_CAT_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_num : num.cpp fp.c $(addprefix $(LIBDIR)/,rank.c)
+ut_num : num.cpp fp.c $(addprefix $(SRCLIB)/,rank.c)
 	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_prep : prep.c $(LIBDIR)/strset.c $(CONTRIB)/md5/md5.c
-	$(CC) -o $@ -std=gnu99 -O0 -g -I$(LIBDIR) -I$(CONTRIB) -DHAVE_CHECKSUM -D_UNIT_TEST_PREP $^ -lm
+ut_prep : prep.c $(SRCLIB)/strset.c $(CONTRIB)/md5/md5.c
+	$(CC) -o $@ -std=gnu99 -O0 -g -I$(SRCLIB) -I$(CONTRIB) -DHAVE_CHECKSUM -D_UNIT_TEST_PREP $^ -lm
 
 ############################################################################
 # General targets
