@@ -765,9 +765,9 @@ int main( int argc, char *argv[] ) {
 		if( L ) {
 			luaL_openlibs(L);
 			if( _load_script( opt_script, L ) != LUA_OK ) {
-				lua_close(L);
 				errx( -1, "failed executing Lua \"%s\": %s", 
 					opt_script, lua_tostring(L,-1) );
+				lua_close(L);
 			}
 		} else
 			errx( -1, "failed creating Lua statespace" );
