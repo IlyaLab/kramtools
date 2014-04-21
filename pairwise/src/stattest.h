@@ -8,6 +8,7 @@
   * under NULL hypothesis assumptions.
   */
 #define MAXLEN_STATRESULT_LOG (127)
+#define MAXNUM_EXTRA_VALUES   (4)
 
 struct Statistic {
 
@@ -17,11 +18,17 @@ struct Statistic {
 	double       probability;
 
 	/**
-	  * This is for recording things like minimum cell count
-	  * in a contingency table or number of ties in data.
-	  * Content depends on .name.
+	  * Following are for recording things like minimum cell count in a 
+	  * contingency table or number of ties in data. Content depends on 
+	  * Statistic.name.
 	  */
-	double       extra[ 4 ];
+	double       extra_value[ MAXNUM_EXTRA_VALUES ];
+	const char * extra_name[  MAXNUM_EXTRA_VALUES ];
+
+	/**
+	  * The number of extra that are valid.
+	  */
+	int          extra_used;
 
 	/**
 	  */

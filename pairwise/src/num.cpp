@@ -74,9 +74,9 @@ int NumCovars::spearman_correlation( struct Statistic *result
 		= rank_floats( r.data(), N, 0, rank_scratch );
 
 	if( RANK_STATUS_CONST & rinfo1 ) // vectors were in fact constant!
-		result->extra[0] = N-1;
+		result->extra_value[0] = N-1;
 	if( RANK_STATUS_CONST & rinfo2 )
-		result->extra[1] = N-1;
+		result->extra_value[1] = N-1;
 
 	{
 		const double rho 

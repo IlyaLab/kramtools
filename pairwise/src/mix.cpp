@@ -241,7 +241,7 @@ int MixCovars::kruskal_wallis( struct Statistic *result/*struct CommonStats *cs,
 
 	double numerator = 0.0;
 
-	result->extra[0] = rank_sums( rank_sum );
+	result->extra_value[0] = rank_sums( rank_sum );
 
 	for(unsigned int i = 0; i <= edge[1].index; i++ ) {
 		if( category_count[i] > 0 ) {

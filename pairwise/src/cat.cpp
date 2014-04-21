@@ -625,10 +625,10 @@ int CatCovars::chi_square( struct Statistic *result
 	result->probability
 		= gsl_cdf_chisq_Q( chi, (decl_rows-1)*(decl_cols-1) );
 
-	result->extra[0] = decl_rows;
-	result->extra[1] = decl_cols;
-	result->extra[2] = minimumExpected;
-	result->extra[3] = n_empty;
+	result->extra_value[0] = decl_rows;
+	result->extra_value[1] = decl_cols;
+	result->extra_value[2] = minimumExpected;
+	result->extra_value[3] = n_empty;
 
 	return 0;
 }
@@ -668,8 +668,8 @@ int CatCovars::fisher_exact( struct Statistic *result
 			count(0,0) + count(0,1) ); // a+b
 
 	// TODO: Don't need these now.
-	result->extra[0] = decl_rows;
-	result->extra[1] = decl_cols;
+	result->extra_value[0] = decl_rows;
+	result->extra_value[1] = decl_cols;
 
 	return 0;
 }
