@@ -45,6 +45,7 @@
 #include "num.h"
 #include "args.h"
 #include "mtmatrix.h"
+#include "mttypeid.h"
 
 /**
   * Most arrays are pre-allocated and sized according to this variable.
@@ -170,8 +171,10 @@ int covan_exec(
 	assert( (pair->l.prop.integral  > 0) == (C1 > 0) );
 	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
 
-	covan->lclass = C1 > 0 ? Categorical : Continuous;
-	covan->rclass = C2 > 0 ? Categorical : Continuous;
+	covan->stat_class.left 
+		= C1 > 0 ? STAT_CLASS_CATEGORICAL : STAT_CLASS_CONTINUOUS;
+	covan->stat_class.right
+		= C2 > 0 ? STAT_CLASS_CATEGORICAL : STAT_CLASS_CONTINUOUS;
 
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
@@ -186,9 +189,9 @@ int covan_exec(
 	// 3. continuous-continuous
 	// Ordinal, which would double the cases, are not currently handled.
 
-	if( covan->lclass == covan->rclass ) {
+	if( covan->stat_class.left == covan->stat_class.right ) {
 
-		if( covan->lclass == Continuous ) {
+		if( covan->stat_class.left == STAT_CLASS_CONTINUOUS ) {
 
 			_naccum.clear();
 
@@ -228,12 +231,12 @@ int covan_exec(
 
 		} else {
 
-			assert( covan->lclass == Categorical );
+			assert( covan->stat_class.left == STAT_CLASS_CATEGORICAL );
 
 			_caccum.clear( C1, C2 );
 
 			// Note that cardinality of univariate features says NOTHING about 
-			// the final table after pairs with NA's are removed! It could be
+			// the final table after pairs with NA's are removed; it could be
 			// empty! That will fall out below though.
 
 			for(int i = 0; i < max_sample_count; i++ ) {
@@ -267,6 +270,7 @@ int covan_exec(
 				covan->status |= FAIL_L_DEGEN;
 			} else {
 				_caccum.cullBadCells( covan->result.log, MAXLEN_STATRESULT_LOG );
+				// ...cullBadCells won't allow the table to become degenerate. 
 				if( count >= arg_min_sample_count ) {
 					if( _caccum.is2x2() ) {
 						_caccum.fisher_exact( &covan->result );
@@ -281,9 +285,9 @@ int covan_exec(
 
 	} else { // features are not of same class
 
-		if( covan->lclass == Categorical ) {
+		if( covan->stat_class.left == STAT_CLASS_CATEGORICAL ) {
 
-			assert( covan->rclass == Continuous );
+			assert( covan->stat_class.right == STAT_CLASS_CONTINUOUS );
 
 			_maccum.clear( C1 );
 
@@ -311,7 +315,8 @@ int covan_exec(
 
 		} else {
 
-			assert( covan->lclass == Continuous && covan->rclass == Categorical );
+			assert( covan->stat_class.left == STAT_CLASS_CONTINUOUS && 
+					covan->stat_class.right == STAT_CLASS_CATEGORICAL );
 
 			_maccum.clear( C2 );
 

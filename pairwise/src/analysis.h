@@ -6,15 +6,6 @@
 extern "C" {
 #endif
 
-enum FeatureClass {
-	Unknown = 0,
-	Boolean,
-	Categorical,
-	Ordinal,
-	Continuous,
-	FeatureClassCount
-};
-
 struct CovariateAnalysis {
 
 #define FAIL_SAMPLES 0x00000001 // Too few samples after filtering.
@@ -25,7 +16,14 @@ struct CovariateAnalysis {
 
 	unsigned status;
 
-	enum FeatureClass lclass, rclass;
+	/**
+	  * These are defined as bitfields by mtm library header (mttypeid.h).
+	  * Yes, there's a reason for bitfields, not enum!
+	  * See documentation from mtm library.
+	  */
+	struct {
+		unsigned left, right;
+	} stat_class;
 
 	/**
 	  * This array deals with the "wasted" samples from the two covariates.
