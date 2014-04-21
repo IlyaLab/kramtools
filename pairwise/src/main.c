@@ -55,7 +55,8 @@
  * externs
  */
 
-int get_base10_ints( FILE *fp, int *index, int n );
+extern int get_base10_ints( FILE *fp, int *index, int n );
+extern int sclass_by_prefix( const char *token );
 
 /***************************************************************************
  * Globals & statics
@@ -533,20 +534,6 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 }
 
 
-static int _parse_row_label( const char *token ) {
-
-	switch( toupper( token[0] ) ) {
-	case 'B':
-		return FIELD_INTEGRAL;
-	case 'C':
-		return FIELD_STRING;
-	case 'N':
-		return FIELD_FLOATING;
-	}
-	return FIELD_UNKNOWN;
-}
-
-
 int main( int argc, char *argv[] ) {
 
 	int exit_status = EXIT_SUCCESS;
@@ -895,7 +882,7 @@ int main( int argc, char *argv[] ) {
 				FLAGS,
 				opt_na_regex,
 				_MAX_CATEGORIES,
-				_parse_row_label,
+				sclass_by_prefix,
 				&_matrix );
 		if( ! err ) 
 			atexit( _freeMatrix );
