@@ -2,18 +2,19 @@
 #define _format_h_
 
 void format_tcga( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status );
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan,
+		FILE *fp );
 
 void format_abbreviated( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status );
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan,
+		FILE *fp );
 
 void format_standard( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status );
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan,
+		FILE *fp );
+
 #endif
 

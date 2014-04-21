@@ -4,7 +4,13 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
+#include <assert.h>
 
+#include "mtmatrix.h"
+#include "mttypeid.h"
+#include "stattest.h"
+#include "analysis.h"
+ 
 /**
   * "Sheila's format"
   * 1  -- feature A
@@ -30,30 +36,54 @@ static double __attribute__((always_inline)) _clamped( double prob ) {
 }
 
 
+/**
+  * This need not support all possibilities since this is transitional
+  * code.
+  * analysis_type(NN,CN,NC,CC,1X,X2):hypothesis_test
+  */
+static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
+	if( STAT_CLASS_CATEGORICAL == l ) {
+		if( STAT_CLASS_CATEGORICAL == r ) {
+			return "CC";
+		} else {
+			assert( STAT_CLASS_CONTINUOUS == r );
+			return "CN";
+		}
+	} else {
+		assert( STAT_CLASS_CONTINUOUS == l );
+		if( STAT_CLASS_CATEGORICAL == r ) {
+			return "NC";
+		} else {
+			assert( STAT_CLASS_CONTINUOUS == r );
+			return "NN";
+		}
+	}
+}
+
+
 void format_tcga( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status ) {
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	double NLOGP[3];
 	char rho[8];
 
-	if( g_summary.spearman_rho == -2.0 )
+	if( covan->sign == 0 )
 		strcpy( rho, "NA" );
 	else 
-		sprintf( rho, "%+.3f", g_summary.spearman_rho );
+		sprintf( rho, "%+d", covan->sign );
 
-	NLOGP[0] = _clamped( g_summary.common.P );
-	NLOGP[1] = _clamped( g_summary.waste[0].common.P );
-	NLOGP[2] = _clamped( g_summary.waste[1].common.P );
+	NLOGP[0] = _clamped( covan->result.probability );
+	NLOGP[1] = _clamped( covan->waste[0].result.probability );
+	NLOGP[2] = _clamped( covan->waste[1].result.probability );
 
-	if( g_rowmap ) {
-		fprintf( g_fp_output, "%s\t%s\t",  g_rowmap[ lf ].name, g_rowmap[ rf ].name );
+	if( pair->l.name != NULL && pair->r.name != NULL ) {
+		fprintf( fp, "%s\t%s\t",  pair->l.name,   pair->r.name );
 	} else {
-		fprintf( g_fp_output, "%d\t%d\t",          lf      ,         rf       );
+		fprintf( fp, "%d\t%d\t",  pair->l.offset, pair->r.offset );
 	}
 
-	fprintf( g_fp_output, 
+	fprintf( fp, 
 		"%s\t"
 		"%s\t"
 		"%d\t"
@@ -61,13 +91,13 @@ void format_tcga(
 		"%d\t%.3f\t"
 		"%d\t%.3f\t"
 		"%s\n", 
-		COVAR_TYPE_STR[ g_summary.kind ],
+		COVAR_TYPE_STR( covan->stat_class.left, covan->stat_class.right ),
 		rho, 
-		g_summary.common.N, 
+		covan->result.sample_count, 
 		NLOGP[0       ],
-		g_summary.waste[0].unused, NLOGP[1],
-		g_summary.waste[1].unused, NLOGP[2],
-		g_summary.log );
+		covan->waste[0].unused, NLOGP[1],
+		covan->waste[1].unused, NLOGP[2],
+		covan->result.log );
 }
 
 
@@ -95,47 +125,43 @@ void format_tcga(
   * 11 -- log (of contingency table culling)
   */
 void format_standard( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status ) {
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan, FILE *fp ) {
 
-	if( g_rowmap ) {
-		fprintf( g_fp_output, "%s\t%s\t",  g_rowmap[ lf ].name, g_rowmap[ rf ].name );
+	if( pair->l.name != NULL && pair->r.name != NULL ) {
+		fprintf( fp, "%s\t%s\t",  pair->l.name,   pair->r.name );
 	} else {
-		fprintf( g_fp_output, "%d\t%d\t",            lf       ,           rf        );
+		fprintf( fp, "%d\t%d\t",  pair->l.offset, pair->r.offset);
 	}
 
-	fprintf( g_fp_output, 
+	fprintf( fp, 
 		"%s:%s\t"
-		"%.3f\t"
+		"%+d\t"
 		"%d\t"
 		"%.3e\t"
 		"%d\t%.3e\t"
 		"%d\t%.3e\t"
 		"%s\n", 
-		COVAR_TYPE_STR[ g_summary.kind ], HypTestNames[ g_summary.test ],
-		g_summary.spearman_rho, 
-		g_summary.common.N, 
-		g_summary.common.P,
-		g_summary.waste[0].unused, g_summary.waste[0].common.P,
-		g_summary.waste[1].unused, g_summary.waste[1].common.P,
-		g_summary.log );
+		COVAR_TYPE_STR( covan->stat_class.left, covan->stat_class.right ), covan->result.name,
+		covan->sign, 
+		covan->result.sample_count, 
+		covan->result.probability,
+		covan->waste[0].unused, covan->waste[0].result.probability,
+		covan->waste[1].unused, covan->waste[1].result.probability,
+		covan->result.log );
 }
 
 
 void format_abbreviated( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status ) {
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan, FILE *fp ) {
 
-	const double rho = g_summary.spearman_rho;
-
-	if( g_rowmap )
-		fprintf( g_fp_output, "%s\t%s\t", g_rowmap[ lf ].name, g_rowmap[ rf ].name );
+	if( pair->l.name != NULL && pair->r.name != NULL )
+		fprintf( fp, "%s\t%s\t", pair->l.name, pair->r.name );
 	else
-		fprintf( g_fp_output, "%d\t%d\t",          lf       ,          rf        );
+		fprintf( fp, "%d\t%d\t",  pair->l.offset, pair->r.offset);
 
-	fprintf( g_fp_output, 
+	fprintf( fp, 
 		"%s\t"
 		"%04x\t"
 		"%d\t%.3e\t"
@@ -143,12 +169,12 @@ void format_abbreviated(
 		"%d\t%.3e\t%d\t"
 		"%.3f\t"
 		"%s\n", 
-		COVAR_TYPE_STR[ g_summary.kind ],
-		status,
-		         g_summary.common.N,          g_summary.common.P,
-		g_summary.waste[0].common.N, g_summary.waste[0].common.P, g_summary.waste[0].unused,
-		g_summary.waste[1].common.N, g_summary.waste[1].common.P, g_summary.waste[1].unused,
-		isnan(rho) ? +nan("nan") : rho, 
-		g_summary.log );
+		COVAR_TYPE_STR( covan->stat_class.left, covan->stat_class.right ),
+		covan->status,
+		covan->result.sample_count,          covan->result.probability,
+		covan->waste[0].result.sample_count, covan->waste[0].result.probability, covan->waste[0].unused,
+		covan->waste[1].result.sample_count, covan->waste[1].result.probability, covan->waste[1].unused,
+		covan->sign == 0 ? +nan("nan") : covan->sign, 
+		covan->result.log );
 }
 

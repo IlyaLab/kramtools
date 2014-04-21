@@ -29,9 +29,8 @@ SOURCES=main.c \
 	analysis.cpp \
 	cat.cpp \
 	mix.cpp \
-	num.cpp
-
-#	format.c
+	num.cpp \
+	format.c
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
@@ -66,7 +65,7 @@ endif
 
 CFLAGS+=-I$(SRCLIB)
 CFLAGS+=-I$(GSLINC) -D_MAX_CATEGORIES=32
-CFLAGS+=-I../../mtm
+CFLAGS+=-I../../mtm/src
 
 LDFLAGS+=-L$(LIBDIR)
 

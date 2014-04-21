@@ -40,10 +40,10 @@
 
 #include <gsl/gsl_errno.h>
 
-//#include "format.h"
 #include "mtmatrix.h"
 #include "stattest.h"
 #include "analysis.h"
+#include "format.h"
 
 #ifdef HAVE_LUA
 #include "lua.h"
@@ -66,12 +66,12 @@ FILE *g_fp_output = NULL;
 FILE *g_fp_cache = NULL;
 
 size_t g_COLUMNS = 0;
-/*
+
 void (*g_format)( 
-		unsigned lf, 
-		unsigned rf,
-		unsigned status ) = format_tcga;
-*/
+		const struct mt_row_pair *pair, 
+		const struct CovariateAnalysis *covan,
+		FILE *fp ) = format_tcga;
+
 
 #define GLOBAL
 GLOBAL unsigned  arg_min_cell_count   = 5;
@@ -196,7 +196,7 @@ static void _filter( ANALYSIS_FN_SIG ) {
 			(( covan.result.probability <= opt_p_value ) && ( covan.status == 0 ) ) 
 
 			) {
-			//g_format( a, b, status );
+			g_format( pair, &covan, g_fp_output );
 		} else {
 			//_filtered[ g_summary.kind ] += 1;
 		}
@@ -444,7 +444,7 @@ static int /*AALL*/ _analyze_all_pairs() {
 	assert( ! _matrix.lexigraphic_order /* should be row order */ );
 
 	fpair.l.data = _matrix.data;
-	lrid         = _matrix.row_map;
+	lrid         = _matrix.row_map; // may be NULL
 
 	for(fpair.l.offset = 0; 
 		fpair.l.offset < _matrix.rows; 
@@ -454,7 +454,7 @@ static int /*AALL*/ _analyze_all_pairs() {
 		fpair.l.prop = _matrix.prop[ fpair.l.offset ];
 
 		fpair.r.data = fpair.l.data + _matrix.columns;
-		rrid = lrid + 1;
+		rrid = lrid ? lrid + 1 : NULL;
 
 		for(fpair.r.offset = fpair.l.offset+1; 
 			fpair.r.offset < _matrix.rows; 
@@ -483,6 +483,7 @@ static int /*AALL*/ _analyze_all_pairs() {
 }
 
 
+#ifdef HAVE_LUA
 /**
   * <source> may be literal Lua code or a filename reference.
   */
@@ -493,6 +494,7 @@ static int _load_script( const char *source, lua_State *state ) {
 		? luaL_dofile(   state, source )
 		: luaL_dostring( state, source );
 }
+#endif
 
 
 /***************************************************************************
@@ -517,6 +519,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 #else
 			"",
 #endif
+			exename,
 			exename,
 			TYPE_PARSER_INFER,
 			opt_na_regex,
@@ -592,10 +595,16 @@ int main( int argc, char *argv[] ) {
 	do {
 
 		static const char *CHAR_OPTIONS 
+#ifdef HAVE_LUA
 			= "s:hrt:N:P:n:x:c:DM:p:f:q:v:?X";
+#else
+			= "hrt:N:P:n:x:DM:p:f:q:v:?X";
+#endif
 
 		static struct option LONG_OPTIONS[] = {
+#ifdef HAVE_LUA
 			{"script",        required_argument,  0,'s'},
+#endif
 			{"no-header",     no_argument,        0,'h'},
 			{"no-row-labels", no_argument,        0,'r'},
 			{"type-parser",   required_argument,  0,'t'},
@@ -604,7 +613,9 @@ int main( int argc, char *argv[] ) {
 
 			{"by-name",       required_argument,  0,'n'},
 			{"by-index",      required_argument,  0,'x'},
+#ifdef HAVE_LUA
 			{"coroutine",     required_argument,  0,'c'},
+#endif
 			{"dry-run",       no_argument,        0,'D'},
 
 			{"min-ct-cell",   required_argument,  0, 256 }, // no short equivalents
@@ -700,10 +711,10 @@ int main( int argc, char *argv[] ) {
 
 		case 'f': // format
 			if( strncmp("std",optarg, 3 ) == 0 )
-				;// TODO: g_format = format_standard;
+				g_format = format_standard;
 			else
 			if( strncmp("short",optarg, 5 ) == 0 )
-				;// TODO: g_format = format_abbreviated;
+				g_format = format_abbreviated;
 			break;
 
 		case 'q':
@@ -863,6 +874,21 @@ int main( int argc, char *argv[] ) {
 		abort();
 	}
 
+	if( arg_verbosity > 1 ) {
+		fprintf( stderr,
+			" input: %s\n"
+			"output: %s\n"
+#ifdef _DEBUG
+			" debug: silent: %s, exhaustive: %s\n"
+#endif
+			,i_file,
+			o_file 
+#ifdef _DEBUG
+			, _YN( dbg_silent ) , _YN( dbg_exhaustive )
+#endif
+			);
+	}
+
 	/**
 	  * Load the input matrix.
 	  */
@@ -875,7 +901,7 @@ int main( int argc, char *argv[] ) {
 		const unsigned int FLAGS
 			= ( opt_header ? MATRIX_HAS_HEADER : 0 ) 
 			| ( opt_row_labels ? MATRIX_HAS_ROW_NAMES : 0 )
-			| 1 /*VERBOSITY_MASK*/;
+			| ( arg_verbosity & VERBOSITY_MASK);
 
 		const int err
 			= mtm_parse( fp,
@@ -902,7 +928,7 @@ int main( int argc, char *argv[] ) {
 	}
 
 	g_fp_output 
-		= strlen(o_file) > 0 
+		= strcmp( i_file, "stdout" ) == 0 
 		? fopen( o_file, "w" ) 
 		: stdout;
 
@@ -915,6 +941,8 @@ int main( int argc, char *argv[] ) {
 		fprintf( g_fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
 
 	if( opt_single_pair ) {
+
+		assert( false /* unimplemented */ );
 
 	} else
 	if( opt_pairlist_source ) {
