@@ -63,6 +63,9 @@ extern int sclass_by_prefix( const char *token );
  * Globals & statics
  */
 
+const char *MAGIC_SUFFIX = "-www";
+const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
+
 FILE *g_fp_output = NULL;
 FILE *g_fp_cache = NULL;
 
@@ -106,7 +109,7 @@ static bool     opt_warnings_are_fatal = false;
 
 static int         arg_verbosity       = 0;
 
-static bool  arg_webservice       = false;
+static bool  arg_webservice            = false;
 
 #ifdef _DEBUG
 /**
@@ -507,12 +510,15 @@ static const char *_YN( bool y ) {
 	return y ? "yes" : "no";
 }
 
+#define USAGE_SHORT false
+#define USAGE_LONG  true
+
 static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 
 	extern const char *USAGE_UNABRIDGED;
-	//extern const char *USAGE_ABBREV;
+	extern const char *USAGE_ABRIDGED;
 
-	if( exhaustive || ! exhaustive )
+	if( exhaustive )
 		fprintf( fp, USAGE_UNABRIDGED,
 			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
 #ifdef _DEBUG
@@ -534,7 +540,22 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_format,
 			_YN(opt_warnings_are_fatal),
 			arg_verbosity,
-			MAX_CATEGORY_COUNT );
+			MAX_CATEGORY_COUNT,
+			MAGIC_SUFFIX,
+			AUTHOR_EMAIL );
+	else
+		fprintf( fp, USAGE_ABRIDGED,
+			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
+#ifdef _DEBUG
+			"(DEBUG)",
+#else
+			"",
+#endif
+			exename,
+			exename,
+			opt_p_value,
+			MAX_CATEGORY_COUNT,
+		  	AUTHOR_EMAIL );
 }
 
 
@@ -564,9 +585,9 @@ int main( int argc, char *argv[] ) {
 
 	{
 		const char *ps
-			= strstr( argv[0], "-www" );
-		arg_webservice 
-			= ( NULL != ps ) && strlen(ps) == 4; // confirm it's at the end.
+			= strstr( argv[0], MAGIC_SUFFIX );
+		arg_webservice = ( NULL != ps ) && 
+			strcmp(ps, MAGIC_SUFFIX) == 0; // it's really a suffix
 	}
 
 	gsl_set_error_handler( _error_handler );
@@ -576,7 +597,7 @@ int main( int argc, char *argv[] ) {
 	 */
 
 	if( argc < 2 ) { // absolute minimum args: <executable name> <input matrix>
-		_print_usage( argv[0], stdout, false );
+		_print_usage( argv[0], stdout, USAGE_SHORT );
 		exit(0);
 	}
 
@@ -588,6 +609,7 @@ int main( int argc, char *argv[] ) {
 	 */
 
 	if( arg_webservice ) {
+		// TODO: these need to be (re)defined.
 		opt_by_name        = true;
 		arg_verbosity      = 0;
 		opt_p_value        = 1.0; // implies NO filtering.
@@ -727,12 +749,12 @@ int main( int argc, char *argv[] ) {
 			break;
 
 		case '?': // help
-			_print_usage( argv[0], stderr, false );
+			_print_usage( argv[0], stdout, USAGE_SHORT );
 			exit(0);
 			break;
 
 		case 'X': // help
-			_print_usage( argv[0], stderr, true );
+			_print_usage( argv[0], stdout, USAGE_LONG );
 			exit(0);
 			break;
 
@@ -764,7 +786,7 @@ int main( int argc, char *argv[] ) {
 		if( L ) {
 			luaL_openlibs(L);
 			if( _load_script( opt_script, L ) != LUA_OK ) {
-				errx( -1, "failed executing Lua \"%s\": %s", 
+				errx( -1, "failed executing \"%s\": %s", 
 					opt_script, lua_tostring(L,-1) );
 				lua_close(L);
 			}

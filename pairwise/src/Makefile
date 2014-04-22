@@ -82,7 +82,10 @@ pairwise : $(VERSIONED_EXECUTABLE)
 usage_full.c : usage_full.txt
 	sed -f usage.sed $< > $@
 
-$(VERSIONED_EXECUTABLE) : $(SOURCES) usage_full.c
+usage_short.c : usage_short.txt
+	sed -f usage.sed $< > $@
+
+$(VERSIONED_EXECUTABLE) : $(SOURCES) usage_full.c usage_short.c
 	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
 
 unittests : $(UNITTESTS)
@@ -115,7 +118,7 @@ archive : clean
 	rm -rf "./$(ARCHIVE_NAME)"
 
 clean :
-	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_full.c
+	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_*.c
 
 .PHONY : clean archive
 

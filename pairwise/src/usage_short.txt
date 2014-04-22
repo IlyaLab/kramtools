@@ -1,0 +1,98 @@
+USAGE_ABRIDGED
+%s version: %d.%d.%d %s
+Usage...
+%s [ options ] [ <input matrix> ] [ <output_file> ]
+
+============================================================================
+Input/output
+============================================================================
+
+Both input and output filenames are optional. 
+If either (or both) are missing stdin or stdout is used for the missing
+file, as appropriate. If only one filename is present it is treated as 
+input if it exists and output otherwise, and a std* stream is used for
+the other.
+
+============================================================================
+General options:
+============================================================================
+
+  -X
+
+	Show the exhaustive help (much longer than what you're reading).
+
+  --dry-run | -D
+
+	%s exits -just before- analysis begins. 
+	This provides a way to verify that a candidate input matrix is well-
+	formatted and (depending on verbosity) obtain other information about 
+	what -would- be done.
+
+============================================================================
+Input matrix options:
+============================================================================
+
+  --no-header | -h
+
+	Treat all lines of the input matrix as data. Otherwise (by default) the 
+	first non-comment, non-blank line is assumed to be a header and ignored.
+
+  --no-row-labels | -r
+
+	The input matrix does not have row labels; treat the first field on each
+	line as data. Otherwise (by default) the first column is assumed to
+	contain row labels (metadata not data).
+
+============================================================================
+Feature (row) pair selection options:
+============================================================================
+
+These options are listed in order of precedence; if multiple appear on the
+command line, earlier options override later ones.
+
+  --pair | -P      <row1>,<row2>
+
+    Analyze the single comma-separated pair of features.
+	"rowX" can be either a feature name or an index.
+
+  --by-name | -n   { <filename> | "-" | "stdin" }
+
+	Read pair names from the specified file ('-' means stdin).
+	Each LINE of input must contain exactly two tab-separated strings.
+
+  --by-index | -x  { <filename> | "-" | "stdin" }
+
+    Read pair of indices from the specified file ('-' means stdin).
+	-- Every contiguous sequence of decimal digits in the stream is
+	   treated as a row index.
+	-- Any non-digit character(s) can be used as separators, and
+	   no distinction is made between the separators within pairs
+	   and separators between pairs.
+	-- Pairs of indices adjacent in the stream are analyzed greedily.
+
+If none of the preceding options are given then analysis is run for
+all N-choose-2 pairs of features using the "natural" ordering.
+
+============================================================================
+Output filters:
+============================================================================
+
+  --p-value | -p <max>  [%.2f]
+  
+	Only emit associations with p-values <= max.
+
+#ifdef _DEBUG
+  --debug
+
+	This option accepts strings to control debug functionality.
+	If you're an end-user, you probably shouldn't even be seeing this;
+	you're running a debug version.  See the source code.
+#endif
+
+Notes:
+. Values in brackets '[ ]' above are defaults.
+. Options for which no default is listed either have no default or the
+  default is the natural opposite of the option.
+. Categorical features MUST have <= %d categories.
+Bug %s with troubles.
+

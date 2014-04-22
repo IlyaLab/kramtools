@@ -183,5 +183,8 @@ Notes:
 . Categorical features MUST have <= %d categories.
 . Parsing and preprocessing of the input matrix is handled by an independent
   library. See its documentation for further information.
-Bug rkramer@systemsbiology.org with troubles.
+. If the name of the executable file of (or symlink to) this program ends 
+  in the suffix "%s", very different defaults are activiated. 
+  See the source code or...
+Bug %s with troubles.
 
