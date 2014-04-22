@@ -44,6 +44,7 @@
 #include "stattest.h"
 #include "analysis.h"
 #include "format.h"
+#include "limits.h"
 
 #ifdef HAVE_LUA
 #include "lua.h"
@@ -533,7 +534,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_format,
 			_YN(opt_warnings_are_fatal),
 			arg_verbosity,
-			_MAX_CATEGORIES );
+			MAX_CATEGORY_COUNT );
 }
 
 
@@ -907,7 +908,7 @@ int main( int argc, char *argv[] ) {
 			= mtm_parse( fp,
 				FLAGS,
 				opt_na_regex,
-				_MAX_CATEGORIES,
+				MAX_CATEGORY_COUNT,
 				sclass_by_prefix,
 				&_matrix );
 		if( ! err ) 

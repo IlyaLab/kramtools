@@ -10,7 +10,7 @@
   *
   * This value is used throughout code to bound various memory allocations.
   */
-#define MAX_ALLOWED_CATEGORY_COUNT (32)
+#define MAX_CATEGORY_COUNT (32)
 
 #endif
 

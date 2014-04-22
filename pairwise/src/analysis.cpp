@@ -46,6 +46,7 @@
 #include "args.h"
 #include "mtmatrix.h"
 #include "mttypeid.h"
+#include "limits.h"
 
 /**
   * Most arrays are pre-allocated and sized according to this variable.
@@ -55,8 +56,8 @@ static int max_sample_count = 0;
 /**
  * These classes handle the actual feature1 vs feature2 analyses.
  */
-static CatCovars _caccum( _MAX_CATEGORIES, _MAX_CATEGORIES );
-static MixCovars _maccum( _MAX_CATEGORIES );
+static CatCovars _caccum( MAX_CATEGORY_COUNT, MAX_CATEGORY_COUNT );
+static MixCovars _maccum( MAX_CATEGORY_COUNT );
 static NumCovars _naccum;
 
 /**
@@ -73,8 +74,8 @@ static NumCovars _naccum;
  * ESSENTIAL THAT SAMPLES PRESENT IN FEAT1 BUT MISSING IN FEAT2 ARE
  * TAGGED WITH 0 IN _Lwaste (vica versa for 2).
  */
-static MixCovars _Lwaste( _MAX_CATEGORIES );
-static MixCovars _Rwaste( _MAX_CATEGORIES );
+static MixCovars _Lwaste( MAX_CATEGORY_COUNT );
+static MixCovars _Rwaste( MAX_CATEGORY_COUNT );
 
 /**
  * Let C++ choose the appropriate one...
@@ -161,7 +162,7 @@ int covan_exec(
 		covan->status = FAIL_E_DEGEN;
 		return -1;
 	} else
-	if( C1 > _MAX_CATEGORIES || C2 > _MAX_CATEGORIES ) {
+	if( C1 > MAX_CATEGORY_COUNT || C2 > MAX_CATEGORY_COUNT ) {
 		covan->status = FAIL_TOOMANY;
 		return -1;
 	}

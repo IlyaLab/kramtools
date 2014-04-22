@@ -22,7 +22,7 @@
 #include "stattest.h"
 #include "mix.h"
 #include "bvr.h"
-
+#include "limits.h"
 
 #ifdef _UNITTEST_MIX_
 unsigned arg_min_mixb_count = 1;
@@ -362,7 +362,7 @@ int main( int argc, char *argv[] ) {
 #ifdef HAVE_MANN_WHITNEY
 	struct MannWhitneyStats ms;
 #endif
-	MixCovars accum( _MAX_CATEGORIES );
+	MixCovars accum( MAX_CATEGORY_COUNT );
 	char *line = NULL;
 	size_t n = 0;
 	FILE *fp 
