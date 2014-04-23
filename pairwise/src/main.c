@@ -57,7 +57,7 @@
  */
 
 extern int get_base10_ints( FILE *fp, int *index, int n );
-extern int sclass_by_prefix( const char *token );
+extern int mtm_sclass_by_prefix( const char *token );
 
 /***************************************************************************
  * Globals & statics
@@ -72,7 +72,7 @@ FILE *g_fp_cache = NULL;
 size_t g_COLUMNS = 0;
 
 void (*g_format)( 
-		const struct mt_row_pair *pair, 
+		const struct mtm_feature_pair *pair, 
 		const struct CovariateAnalysis *covan,
 		FILE *fp ) = format_tcga;
 
@@ -138,7 +138,7 @@ static bool  dbg_silent     = false;
   * within this file, and code in here dolls out just what analysis
   * requires: row pairs.
   */
-static struct mtmatrix _matrix;
+static struct mtm_matrix _matrix;
 
 static void _interrupt( int n ) {
 	g_sigint_received = true;
@@ -173,7 +173,7 @@ void panic( const char *src, int line ) {
   *
   * All three of these methods must have the same signature.
   */
-#define ANALYSIS_FN_SIG const struct mt_row_pair *pair
+#define ANALYSIS_FN_SIG const struct mtm_feature_pair *pair
 
 typedef void (*ANALYSIS_FN)( ANALYSIS_FN_SIG );
 
@@ -321,7 +321,7 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 
 static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 
-	struct mt_row_pair fpair;
+	struct mtm_feature_pair fpair;
 
 	size_t blen = 0;
 	ssize_t llen;
@@ -377,7 +377,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 
 static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 
-	struct mt_row_pair fpair;
+	struct mtm_feature_pair fpair;
 
 	int arr[2];
 
@@ -410,7 +410,7 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 #ifdef HAVE_LUA
 static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 
-	struct mt_row_pair fpair;
+	struct mtm_feature_pair fpair;
 
 	while( false ) {
 		_analyze( &fpair );
@@ -441,9 +441,9 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
   */
 static int /*AALL*/ _analyze_all_pairs() {
 
-	struct mt_row_pair fpair;
+	struct mtm_feature_pair fpair;
 
-	struct row_id *lrid, *rrid;
+	struct mtm_row_id *lrid, *rrid;
 
 	assert( ! _matrix.lexigraphic_order /* should be row order */ );
 
@@ -576,7 +576,7 @@ int main( int argc, char *argv[] ) {
 	  */
 
 	//memset( _filtered, 0, sizeof(_filtered) );
-	memset( &_matrix,  0, sizeof(struct mtmatrix) );
+	memset( &_matrix,  0, sizeof(struct mtm_matrix) );
 
 	/**
 	 * This auto(de)selects options related to running this executable
@@ -922,16 +922,16 @@ int main( int argc, char *argv[] ) {
 	if( fp ) {
 
 		const unsigned int FLAGS
-			= ( opt_header ? MATRIX_HAS_HEADER : 0 ) 
-			| ( opt_row_labels ? MATRIX_HAS_ROW_NAMES : 0 )
-			| ( arg_verbosity & VERBOSITY_MASK);
+			= ( opt_header ? MTM_MATRIX_HAS_HEADER : 0 ) 
+			| ( opt_row_labels ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
+			| ( arg_verbosity & MTM_VERBOSITY_MASK);
 
 		const int err
 			= mtm_parse( fp,
 				FLAGS,
 				opt_na_regex,
 				MAX_CATEGORY_COUNT,
-				sclass_by_prefix,
+				mtm_sclass_by_prefix,
 				&_matrix );
 		if( ! err ) 
 			atexit( _freeMatrix );

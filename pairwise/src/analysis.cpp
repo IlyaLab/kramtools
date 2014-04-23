@@ -141,7 +141,7 @@ int covan_init( int columns ) {
  *    covariates is categorical with > 2 categories.
  */
 int covan_exec( 
-		const struct mt_row_pair *pair,
+		const struct mtm_feature_pair *pair,
 		struct CovariateAnalysis *covan ) {
 
 	const unsigned int C1
@@ -173,9 +173,9 @@ int covan_exec(
 	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
 
 	covan->stat_class.left 
-		= C1 > 0 ? STAT_CLASS_CATEGORICAL : STAT_CLASS_CONTINUOUS;
+		= C1 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
 	covan->stat_class.right
-		= C2 > 0 ? STAT_CLASS_CATEGORICAL : STAT_CLASS_CONTINUOUS;
+		= C2 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
 
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
@@ -192,7 +192,7 @@ int covan_exec(
 
 	if( covan->stat_class.left == covan->stat_class.right ) {
 
-		if( covan->stat_class.left == STAT_CLASS_CONTINUOUS ) {
+		if( covan->stat_class.left == MTM_STATCLASS_CONTINUOUS ) {
 
 			_naccum.clear();
 
@@ -232,7 +232,7 @@ int covan_exec(
 
 		} else {
 
-			assert( covan->stat_class.left == STAT_CLASS_CATEGORICAL );
+			assert( covan->stat_class.left == MTM_STATCLASS_CATEGORICAL );
 
 			_caccum.clear( C1, C2 );
 
@@ -286,9 +286,9 @@ int covan_exec(
 
 	} else { // features are not of same class
 
-		if( covan->stat_class.left == STAT_CLASS_CATEGORICAL ) {
+		if( covan->stat_class.left == MTM_STATCLASS_CATEGORICAL ) {
 
-			assert( covan->stat_class.right == STAT_CLASS_CONTINUOUS );
+			assert( covan->stat_class.right == MTM_STATCLASS_CONTINUOUS );
 
 			_maccum.clear( C1 );
 
@@ -316,8 +316,8 @@ int covan_exec(
 
 		} else {
 
-			assert( covan->stat_class.left == STAT_CLASS_CONTINUOUS && 
-					covan->stat_class.right == STAT_CLASS_CATEGORICAL );
+			assert( covan->stat_class.left == MTM_STATCLASS_CONTINUOUS && 
+					covan->stat_class.right == MTM_STATCLASS_CATEGORICAL );
 
 			_maccum.clear( C2 );
 

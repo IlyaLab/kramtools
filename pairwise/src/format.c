@@ -42,19 +42,19 @@ static double __attribute__((always_inline)) _clamped( double prob ) {
   * analysis_type(NN,CN,NC,CC,1X,X2):hypothesis_test
   */
 static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
-	if( STAT_CLASS_CATEGORICAL == l ) {
-		if( STAT_CLASS_CATEGORICAL == r ) {
+	if( MTM_STATCLASS_CATEGORICAL == l ) {
+		if( MTM_STATCLASS_CATEGORICAL == r ) {
 			return "CC";
 		} else {
-			assert( STAT_CLASS_CONTINUOUS == r );
+			assert( MTM_STATCLASS_CONTINUOUS == r );
 			return "CN";
 		}
 	} else {
-		assert( STAT_CLASS_CONTINUOUS == l );
-		if( STAT_CLASS_CATEGORICAL == r ) {
+		assert( MTM_STATCLASS_CONTINUOUS == l );
+		if( MTM_STATCLASS_CATEGORICAL == r ) {
 			return "NC";
 		} else {
-			assert( STAT_CLASS_CONTINUOUS == r );
+			assert( MTM_STATCLASS_CONTINUOUS == r );
 			return "NN";
 		}
 	}
@@ -62,7 +62,7 @@ static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
 
 
 void format_tcga( 
-		const struct mt_row_pair *pair, 
+		const struct mtm_feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	double NLOGP[3];
@@ -125,7 +125,7 @@ void format_tcga(
   * 11 -- log (of contingency table culling)
   */
 void format_standard( 
-		const struct mt_row_pair *pair, 
+		const struct mtm_feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL ) {
@@ -153,7 +153,7 @@ void format_standard(
 
 
 void format_abbreviated( 
-		const struct mt_row_pair *pair, 
+		const struct mtm_feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL )

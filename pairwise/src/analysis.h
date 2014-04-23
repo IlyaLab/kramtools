@@ -59,7 +59,7 @@ int  covan_init( int columns );
 /**
  * Returns non-zero on error and 0 otherwise.
  */
-int  covan_exec( const struct mt_row_pair *pair, struct CovariateAnalysis * );
+int  covan_exec( const struct mtm_feature_pair *pair, struct CovariateAnalysis * );
 
 #ifdef __cplusplus
 }
