@@ -1,16 +1,14 @@
 
 /**
   * This file serves 3 primary functions:
-  * 1) finding and prepping the input matrix for processing.
-  * 2) iterating through the input matrix' rows either by name or 
-  *    using a possibly complex series of range specifications
-  *    and for each pair calling a high-level analysis method
+  * 1) loading and parsing the input matrix (done by libmtm.a) 
+  * 2) iterating through a sequence of feature pairs (specified
+  *    in a variety of ways) and for each pair calling a high-level 
+  *    analysis method that selects an appropriate covariate analysis.
   * 3) routing the results to either
   *    a) immediate output using a specified formatter or
   *    b) a cache to be post-processed (for FDR control) and subsequently
   *       output.
-  *
-  *     
   *
   * Audit:
   *   1) All error exits return -1. When used as webservice proper status
@@ -95,7 +93,7 @@ static bool        opt_row_labels      = true;
 static const char *opt_type_parser     = NULL;
 static const char *opt_na_regex        = "[Nn][Aa][Nn]?";
 
-static const char *opt_single_pair     = NULL;
+static       char *opt_single_pair     = NULL; // non-const because it's split
 
 static const char *opt_pairlist_source = NULL;
 static bool        opt_by_name         = false;
@@ -516,6 +514,10 @@ static int _load_script( const char *source, lua_State *state ) {
   * Online help
   */
 
+static bool _is_integer( const char *pc ) {
+	while( *pc ) if( ! isdigit(*pc++) ) return false;
+	return true;
+}
 
 static const char *_YN( bool y ) {
 	return y ? "yes" : "no";
@@ -967,7 +969,46 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_single_pair ) {
 
-		assert( false /* unimplemented */ );
+		int econd;
+		struct CovariateAnalysis covan;
+		struct feature_pair pair;
+		char *left  = opt_single_pair;
+		char *right = strchr( left, ',' );
+
+		if( NULL == right )
+			errx( -1, "missing comma separator in feature pair \"%s\"", left );
+		*right++ = '\0';
+
+		memset( &pair, 0, sizeof(pair) );
+		memset( &covan, 0, sizeof(covan) );
+
+		if( _is_integer( left ) ) {
+			pair.l.offset = atoi( left );
+			mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
+			econd = mtm_fetch_by_offset( &_matrix, &(pair.l) );
+		} else 
+		if( opt_row_labels ) {
+			pair.l.name   = left;
+			mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+			econd = mtm_fetch_by_name( &_matrix, &(pair.l) );
+		} else
+			errx( -1, "you tried to specify row names for a matrix without them.\n" );
+
+		if( _is_integer( right ) ) {
+			pair.r.offset = atoi( right );
+			mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
+			econd = mtm_fetch_by_offset( &_matrix, &(pair.r) );
+		} else
+		if( opt_row_labels ) {
+			pair.r.name = right;
+			mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+			econd = mtm_fetch_by_name( &_matrix, &(pair.r) );
+		} else
+			errx( -1, "you tried to specify row names for a matrix without them.\n" );
+	
+		covan_exec( &pair, &covan );
+
+		g_format( &pair, &covan, g_fp_output );
 
 	} else
 	if( opt_pairlist_source ) {
