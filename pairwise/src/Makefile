@@ -105,9 +105,6 @@ ut_cat : cat.cpp $(addprefix $(SRCLIB)/,fisher.c min2.c)
 ut_num : num.cpp fp.c $(addprefix $(SRCLIB)/,rank.c)
 	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_prep : prep.c $(SRCLIB)/strset.c $(CONTRIB)/md5/md5.c
-	$(CC) -o $@ -std=gnu99 -O0 -g -I$(SRCLIB) -I$(CONTRIB) -DHAVE_CHECKSUM -D_UNIT_TEST_PREP $^ -lm
-
 ############################################################################
 # General targets
 
