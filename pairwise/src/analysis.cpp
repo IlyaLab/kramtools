@@ -48,6 +48,8 @@
 #include "mtsclass.h"
 #include "limits.h"
 
+#include "featpair.h"
+
 /**
   * Most arrays are pre-allocated and sized according to this variable.
   */
@@ -141,7 +143,7 @@ int covan_init( int columns ) {
  *    covariates is categorical with > 2 categories.
  */
 int covan_exec( 
-		const struct mtm_feature_pair *pair,
+		const struct feature_pair *pair,
 		struct CovariateAnalysis *covan ) {
 
 	const unsigned int C1

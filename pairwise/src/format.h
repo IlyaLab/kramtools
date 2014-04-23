@@ -2,18 +2,18 @@
 #define _format_h_
 
 void format_tcga( 
-		const struct mtm_feature_pair *pair, 
-		const struct CovariateAnalysis *covan,
+		FEATURE_PAIR_T *pair, 
+		COVARIATEANALYSIS_T *covan,
 		FILE *fp );
 
 void format_abbreviated( 
-		const struct mtm_feature_pair *pair, 
-		const struct CovariateAnalysis *covan,
+		FEATURE_PAIR_T *pair, 
+		COVARIATEANALYSIS_T *covan,
 		FILE *fp );
 
 void format_standard( 
-		const struct mtm_feature_pair *pair, 
-		const struct CovariateAnalysis *covan,
+		FEATURE_PAIR_T *pair, 
+		COVARIATEANALYSIS_T *covan,
 		FILE *fp );
 
 #endif

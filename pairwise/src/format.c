@@ -7,10 +7,12 @@
 #include <assert.h>
 
 #include "mtmatrix.h"
+#include "featpair.h"
 #include "mtsclass.h"
 #include "stattest.h"
 #include "analysis.h"
- 
+#include "format.h"
+
 /**
   * "Sheila's format"
   * 1  -- feature A
@@ -62,7 +64,7 @@ static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
 
 
 void format_tcga( 
-		const struct mtm_feature_pair *pair, 
+		const struct feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	double NLOGP[3];
@@ -125,7 +127,7 @@ void format_tcga(
   * 11 -- log (of contingency table culling)
   */
 void format_standard( 
-		const struct mtm_feature_pair *pair, 
+		const struct feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL ) {
@@ -153,7 +155,7 @@ void format_standard(
 
 
 void format_abbreviated( 
-		const struct mtm_feature_pair *pair, 
+		const struct feature_pair *pair, 
 		const struct CovariateAnalysis *covan, FILE *fp ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL )

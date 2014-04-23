@@ -30,6 +30,7 @@ SOURCES=main.c \
 	cat.cpp \
 	mix.cpp \
 	num.cpp \
+	featpair.c\
 	format.c
 
 SRCLIB=../../lib/c

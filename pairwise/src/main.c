@@ -41,6 +41,7 @@
 #include <gsl/gsl_errno.h>
 
 #include "mtmatrix.h"
+#include "featpair.h"
 #include "stattest.h"
 #include "analysis.h"
 #include "format.h"
@@ -72,7 +73,7 @@ FILE *g_fp_cache = NULL;
 size_t g_COLUMNS = 0;
 
 void (*g_format)( 
-		const struct mtm_feature_pair *pair, 
+		const struct feature_pair *pair, 
 		const struct CovariateAnalysis *covan,
 		FILE *fp ) = format_tcga;
 
@@ -173,7 +174,7 @@ void panic( const char *src, int line ) {
   *
   * All three of these methods must have the same signature.
   */
-#define ANALYSIS_FN_SIG const struct mtm_feature_pair *pair
+#define ANALYSIS_FN_SIG const struct feature_pair *pair
 
 typedef void (*ANALYSIS_FN)( ANALYSIS_FN_SIG );
 
@@ -321,7 +322,7 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 
 static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 
-	struct mtm_feature_pair fpair;
+	struct feature_pair fpair;
 
 	size_t blen = 0;
 	ssize_t llen;
@@ -350,7 +351,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 		fpair.l.name  = left;
 		fpair.r.name = right;
 
-		if( mtm_fetch_by_name( &_matrix, &fpair ) != 2 ) {
+		if( fetch_by_name( &_matrix, &fpair ) != 2 ) {
 
 			fprintf( stderr,
 				"error: one or both of...\n"
@@ -377,7 +378,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 
 static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 
-	struct mtm_feature_pair fpair;
+	struct feature_pair fpair;
 
 	int arr[2];
 
@@ -386,7 +387,7 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 		fpair.l.offset  = arr[0];
 		fpair.r.offset = arr[1];
 
-		if( mtm_fetch_by_offset( &_matrix, &fpair ) != 2 ) {
+		if( fetch_by_offset( &_matrix, &fpair ) != 2 ) {
 			fprintf( stderr, 
 				"error: one of row indices (%d,%d) not in [0,%d)\n"
 				"\tjust before byte offset %ld in the stream.\n"
@@ -410,7 +411,7 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 #ifdef HAVE_LUA
 static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 
-	struct mtm_feature_pair fpair;
+	struct feature_pair fpair;
 
 	while( false ) {
 		_analyze( &fpair );
@@ -441,7 +442,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
   */
 static int /*AALL*/ _analyze_all_pairs() {
 
-	struct mtm_feature_pair fpair;
+	struct feature_pair fpair;
 
 	struct mtm_row_id *lrid, *rrid;
 
