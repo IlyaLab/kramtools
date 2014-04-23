@@ -54,6 +54,7 @@ command line, earlier options override later ones.
 
     Analyze the single comma-separated pair of features.
 	"rowX" can be either a feature name or an index.
+	An identifier consisting entirely of digits is treated as an index.
 
   --by-name | -n   { <filename> | "-" | "stdin" }
 
@@ -65,10 +66,11 @@ command line, earlier options override later ones.
     Read pair of indices from the specified file ('-' means stdin).
 	-- Every contiguous sequence of decimal digits in the stream is
 	   treated as a row index.
+	-- Every consecutive pair of indices is treated as a feature pair
+	   specifier.
 	-- Any non-digit character(s) can be used as separators, and
 	   no distinction is made between the separators within pairs
 	   and separators between pairs.
-	-- Pairs of indices adjacent in the stream are analyzed greedily.
 
 If none of the preceding options are given then analysis is run for
 all N-choose-2 pairs of features using the "natural" ordering.
