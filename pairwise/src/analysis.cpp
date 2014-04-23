@@ -45,7 +45,7 @@
 #include "num.h"
 #include "args.h"
 #include "mtmatrix.h"
-#include "mttypeid.h"
+#include "mtsclass.h"
 #include "limits.h"
 
 /**

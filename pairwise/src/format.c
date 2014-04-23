@@ -7,7 +7,7 @@
 #include <assert.h>
 
 #include "mtmatrix.h"
-#include "mttypeid.h"
+#include "mtsclass.h"
 #include "stattest.h"
 #include "analysis.h"
  

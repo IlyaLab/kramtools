@@ -17,7 +17,7 @@ struct CovariateAnalysis {
 	unsigned status;
 
 	/**
-	  * These are defined as bitfields by mtm library header (mttypeid.h).
+	  * These are defined as bitfields by mtm library header (mtsclass.h).
 	  * Yes, there's a reason for bitfields, not enum!
 	  * See documentation from mtm library.
 	  */
