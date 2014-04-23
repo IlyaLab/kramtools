@@ -126,6 +126,11 @@ static bool  dbg_exhaustive = false;
 static bool  dbg_silent     = false;
 #endif
 
+#ifdef HAVE_LUA
+static lua_State *_L = NULL;
+#endif
+
+
 /**
   * Records the number of each test type that are filtered.
   */
@@ -150,6 +155,11 @@ static void _freeMatrix() {
 	_matrix.destroy( &_matrix );
 }
 
+#ifdef HAVE_LUA
+static void _freeLua() {
+	lua_close( _L );
+}
+#endif
 
 void panic( const char *src, int line ) {
 	fprintf( stderr, "panic on %s:%d", src, line );
@@ -161,7 +171,7 @@ void panic( const char *src, int line ) {
  * Pipeline
  * A) explicit pairs
  *    1. row pair -> analysis -> filtering -> output
- * B) NC2 or Lua generated pair lists
+ * B) all-pairs or Lua generated pair lists
  *    1. row pair -> analysis -> filtering -> output
  *    2. row pair -> analysis -> fdr aggregation -> re-processing ->output
  */
@@ -568,10 +578,6 @@ int main( int argc, char *argv[] ) {
 	const char *o_file = NULL;
 	FILE *fp           = NULL;
 
-#ifdef HAVE_LUA
-	lua_State *L = NULL;
-#endif
-
 	/**
 	  * Mandatory initializations.
 	  */
@@ -708,9 +714,8 @@ int main( int argc, char *argv[] ) {
 		case 'M':
 			arg_min_sample_count = atoi( optarg );
 			if( arg_min_sample_count < 2 ) {
-				fprintf( stderr, 
-					"Seriously...%d samples is acceptable?\n"
-					"I don't think so...\n", 
+				warnx( "Seriously...%d samples is acceptable?\n"
+					"I don't think so... ;)\n", 
 					arg_min_sample_count );
 				exit(-1);
 			}
@@ -720,14 +725,12 @@ int main( int argc, char *argv[] ) {
 		case 'p':
 			opt_p_value = atof( optarg );
 			if( ! ( 0 < opt_p_value ) ) {
-				fprintf( stderr,
-					"error: specified p-value %.3f will preclude all output.\n",
+				warnx( "specified p-value %.3f will preclude all output.\n",
 					opt_p_value );
 				abort();
 			} else
 			if( ! ( opt_p_value < 1.0 ) ) {
-				fprintf( stderr,
-					"warning: p-value %.3f will filter nothing.\n"
+				warnx( "p-value %.3f will filter nothing.\n"
 					"\tIs this really what you want?\n", 
 					opt_p_value );
 			}
@@ -783,13 +786,14 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_script ) {
 
-		L = luaL_newstate();
-		if( L ) {
-			luaL_openlibs(L);
-			if( _load_script( opt_script, L ) != LUA_OK ) {
+		_L = luaL_newstate();
+		if( _L ) {
+			atexit( _freeLua );
+			luaL_openlibs( _L );
+			if( _load_script( opt_script, _L ) != LUA_OK ) {
 				errx( -1, "failed executing \"%s\": %s", 
-					opt_script, lua_tostring(L,-1) );
-				lua_close(L);
+					opt_script, lua_tostring( _L,-1) );
+				lua_close( _L );
 			}
 		} else
 			errx( -1, "failed creating Lua statespace" );
@@ -800,15 +804,15 @@ int main( int argc, char *argv[] ) {
 
 		if( NULL == opt_coroutine ) {
 
-			lua_getglobal( L, DEFAULT_COROUTINE );
+			lua_getglobal( _L, DEFAULT_COROUTINE );
 
-			if( ! lua_isnil( L, -1 ) )
+			if( ! lua_isnil( _L, -1 ) )
 				opt_coroutine = DEFAULT_COROUTINE;
 
 			// Non-existence of DEFAULT_COROUTINE is not an error;
 			// we assume user does NOT intend Lua to generate the pairs.
 
-			lua_pop( L, 1 );
+			lua_pop( _L, 1 );
 		}
 
 		/**
@@ -823,19 +827,19 @@ int main( int argc, char *argv[] ) {
 				= opt_coroutine 
 				? opt_coroutine 
 				: DEFAULT_COROUTINE;
-			lua_getglobal( L, coroutine );
-			if( lua_isnil( L, -1 ) )
+			lua_getglobal( _L, coroutine );
+			if( lua_isnil( _L, -1 ) )
 				errx( -1, "%s not defined (in Lua's global namespace)", 
 					coroutine );
 			while( lua_status == LUA_YIELD ) {
-				lua_status = lua_resume( L, NULL, 0 );
+				lua_status = lua_resume( _L, NULL, 0 );
 				if( lua_status <= LUA_YIELD /* OK == 0, YIELD == 1*/ ) {
-					const int b = lua_tonumberx( L, -1, &isnum );
-					const int a = lua_tonumberx( L, -2, &isnum );
-					lua_pop( L, 2 );
+					const int b = lua_tonumberx( _L, -1, &isnum );
+					const int a = lua_tonumberx( _L, -2, &isnum );
+					lua_pop( _L, 2 );
 					fprintf( stdout, "%d %d\n", a, b );
 				} else
-					fputs( lua_tostring(L,-1), stderr );
+					fputs( lua_tostring( _L,-1), stderr );
 			}
 
 			exit(0);
@@ -850,7 +854,7 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_single_pair ) {
 		if( USE_FDR_CONTROL ) {
-			fprintf( stderr, "warning: FDR is senseless on a single pair.\n" );
+			warnx( "FDR is senseless on a single pair.\n" );
 			if( opt_warnings_are_fatal )
 				abort();
 			else
@@ -886,16 +890,12 @@ int main( int argc, char *argv[] ) {
 		break;
 
 	default:
-		fprintf( stderr, 
-			"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
-		abort();
+		errx( -1, "error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
 	}
 
 	if( opt_pairlist_source != NULL 
 			&& strcmp( opt_pairlist_source, i_file ) == 0 ) {
-		fprintf( stderr, 
-			"error: stdin specified (or implied) for both pair list and the input matrix\n" );
-		abort();
+		errx( -1, "error: stdin specified (or implied) for both pair list and the input matrix\n" );
 	}
 
 	if( arg_verbosity > 1 ) {
@@ -927,16 +927,19 @@ int main( int argc, char *argv[] ) {
 			| ( opt_row_labels ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
 			| ( arg_verbosity & MTM_VERBOSITY_MASK);
 
-		const int err
+		const int econd
 			= mtm_parse( fp,
 				FLAGS,
 				opt_na_regex,
 				MAX_CATEGORY_COUNT,
 				mtm_sclass_by_prefix,
 				&_matrix );
-		if( ! err ) 
-			atexit( _freeMatrix );
 		fclose( fp );
+
+		if( econd ) 
+			errx( -1, "mtm_parse returned (%d)", econd );
+		else
+			atexit( _freeMatrix );
 	}
 
 	if( opt_dry_run ) { // a second possible 
@@ -945,8 +948,7 @@ int main( int argc, char *argv[] ) {
 
 	if( ! arg_webservice ) {
 		if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
-			fprintf( stderr,
-				"warning: failed installing interrupt handler\n"
+			warn( "failed installing interrupt handler\n"
 				"\tCtrl-C will terminated gracelessly\n" );
 		}
 	}
@@ -957,8 +959,7 @@ int main( int argc, char *argv[] ) {
 		: stdout;
 
 	if( covan_init( _matrix.columns ) ) {
-		fprintf( stderr, "error: covan_init(%d)\n", _matrix.columns );
-		exit(-1);
+		err( -1, "error: covan_init(%d)\n", _matrix.columns );
 	}
 
 	if( arg_verbosity > 0 ) 
@@ -977,27 +978,28 @@ int main( int argc, char *argv[] ) {
 			: stdin;
 		
 		if( fp ) {
-			int err
+			const int econd
 				= opt_by_name 
 				? _analyze_named_pair_list( fp )
 				: _analyze_pair_list( fp );
+			if( econd )
+				warn( "error (%d) analyzing%s pair list", 
+					econd, opt_by_name ? " named" : "" );
 			fclose( fp );
 		} else
-			fprintf( stderr, "error" );
+			warn( "opening \"%s\"", opt_pairlist_source );
 
 	} else {
 
 		if( USE_FDR_CONTROL ) {
 			g_fp_cache = tmpfile();
-			if( NULL == g_fp_cache ) {
-				perror( "creating a temporary file" );
-				abort();
-			}
+			if( NULL == g_fp_cache )
+				err( -1, "creating a temporary file" );
 		}
 
 #ifdef HAVE_LUA
 		if( opt_coroutine )
-			_analyze_generated_pair_list( L );
+			_analyze_generated_pair_list( _L );
 		else
 #endif
 			_analyze_all_pairs();
