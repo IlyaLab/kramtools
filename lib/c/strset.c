@@ -15,7 +15,7 @@
 
 struct entry {
 	const char *str;
-	unsigned index;
+	unsigned tagval;
 };
 
 struct table {
@@ -23,6 +23,10 @@ struct table {
 	int occupancy;
 	unsigned int mask;
 	int dup;
+
+	string_hash_fx hash;
+	unsigned int   seed;
+
 	struct entry *array;
 };
 
@@ -37,16 +41,6 @@ static int _power_of_2_upper_bound( int v ) {
 	int i = 0;
 	while( (1<<i) < v && i < 31 ) i++;
 	return (1<<i);
-}
-
-/**
-  * This doesn't have to be a great hash function; better that it's fast.
-  */
-static int _hash( const char *sz ) {
-	const int PRIME = 87;
-	unsigned int h  = 1;
-	while( *sz ) h = (h*(*sz++)) % PRIME;
-	return h;
 }
 
 
@@ -74,7 +68,8 @@ static int _rehash( struct entry *cur, int n, struct table *t ) {
   * Only RAM exhaustion can cause failure, so that is implied if return is 
   * NULL...no need for more error reporting.
   */
-void * szs_create( unsigned int max, int dup ) {
+
+void * szs_create( unsigned int max, int dup, string_hash_fx fxn, unsigned int seed ) {
 
 	struct table *table
 		= calloc( 1, sizeof(struct table) );
@@ -97,6 +92,11 @@ void * szs_create( unsigned int max, int dup ) {
 		table->dup
 			= dup;
 
+		table->hash
+			= fxn;
+		table->seed
+			= seed;
+
 		if( NULL == table->array ) {
 			free( table );
 			table = NULL;
@@ -108,6 +108,8 @@ void * szs_create( unsigned int max, int dup ) {
 
 /**
   * Doubles the capacity of the table.
+  * TODO: Currently indices are not stable--that is, after resizing strings
+  * are mapped to different indices.
   */
 int szs_grow( void *ht ) {
 
@@ -148,17 +150,17 @@ int szs_grow( void *ht ) {
 }
 
 
-int szs_insert( void *ht, const char *str, unsigned int *index ) {
+int szs_insert( void *ht, const char *str, unsigned int *tagval ) {
 
 	struct table *t 
 		= (struct table*)ht;
 
-	assert( t != NULL & str != NULL );
+	assert( (t != NULL) && (str != NULL) );
 
 	if( *str ) {
 
 		const int K
-			= _hash( str );
+			= t->hash( str, t->seed );
 		const int IDEAL
 			= K & t->mask;
 		int pos
@@ -174,12 +176,12 @@ int szs_insert( void *ht, const char *str, unsigned int *index ) {
 
 		if( ENTRY_IS_EMPTY(t,pos) ) {
 			t->array[pos].str   = t->dup ? strdup(str) : str;
-			t->array[pos].index = t->occupancy++;
-			if( index ) *index = t->array[pos].index;
+			t->array[pos].tagval = t->occupancy++;
+			if( tagval ) *tagval = t->array[pos].tagval;
 			return SZS_ADDED;
 		} else
 		if( strcmp( t->array[pos].str, str ) == 0 ) {
-			if( index ) *index = t->array[pos].index;
+			if( tagval ) *tagval = t->array[pos].tagval;
 			return SZS_PRESENT;
 		}
 	} else
@@ -189,17 +191,17 @@ int szs_insert( void *ht, const char *str, unsigned int *index ) {
 }
 
 
-int szs_index( void *ht, const char *str ) {
+int szs_tag( void *ht, const char *str ) {
 
 	struct table *t 
 		= (struct table*)ht;
 
-	assert( t != NULL & str != NULL );
+	assert( (t != NULL) && (str != NULL) );
 
 	if( *str ) { // Zero should never be a key
 
 		const int K
-			= _hash( str );
+			= t->hash( str, t->seed );
 		int remaining 
 			= t->capacity;
 		int pos
@@ -207,7 +209,7 @@ int szs_index( void *ht, const char *str ) {
 		while( strcmp( t->array[pos].str,str) && remaining-- > 0 ) 
 			pos = (pos + 1) % t->capacity;
 		if( strcmp( t->array[pos].str, str ) == 0 ) {
-			return t->array[pos].index;
+			return t->array[pos].tagval;
 		}
 	} else
 		return SZS_ZERO_KEY;
@@ -246,10 +248,12 @@ void szs_destroy( void *ht ) {
 	free( t );
 }
 
-#ifdef _UNIT_TEST_STRSET_
+#ifdef _UNIT_TEST_STRSET
 
 #include <stdio.h>
 #include <err.h>
+
+#include "fnv/fnv.h"
 
 int main( int argc, char *argv[] ) {
 
@@ -261,7 +265,7 @@ int main( int argc, char *argv[] ) {
 		char *line = NULL;
 		size_t blen = 0;
 		ssize_t llen;
-		void *h = szs_create( CAP, 1 /* duplicate */ );
+		void *h = szs_create( CAP, 1 /* duplicate */, fnv_32_str, FNV1_32_INIT );
 		struct table *t
 			= (struct table *)h;
 
@@ -270,7 +274,7 @@ int main( int argc, char *argv[] ) {
 
 		if( h ) {
 			const char * k;
-			unsigned int index, erv;
+			unsigned int tagval, erv;
 			while( (llen = getline( &line, &blen, stdin )) > 0 ) {
 				if( line[0] == '?' ) {
 					printf( "%d/%d\n", szs_count(h), t->capacity );
@@ -286,12 +290,12 @@ int main( int argc, char *argv[] ) {
 					continue;
 				}
 				line[llen-1] = '\0'; // lop off the newline.
-				switch( szs_insert( h, line, &index ) ) {
+				switch( szs_insert( h, line, &tagval ) ) {
 				case SZS_ADDED:
-					printf( "+ %s => %d\n", line, index );
+					printf( "+ %s => %d\n", line, tagval );
 					break;
 				case SZS_PRESENT:
-					printf( "P %s => %d\n", line, index );
+					printf( "P %s => %d\n", line, tagval );
 					break;
 				case SZS_ZERO_KEY:
 					printf( "! empty string\n" );
