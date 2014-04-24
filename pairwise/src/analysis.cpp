@@ -161,11 +161,11 @@ int covan_exec(
 	  */
 
 	if( pair->l.prop.constant || pair->r.prop.constant ) {
-		covan->status = FAIL_E_DEGEN;
+		covan->status = COVAN_E_UNIVAR_DEGEN;
 		return -1;
 	} else
 	if( C1 > MAX_CATEGORY_COUNT || C2 > MAX_CATEGORY_COUNT ) {
-		covan->status = FAIL_TOOMANY;
+		covan->status = COVAN_E_TOOMANY_CATS;
 		return -1;
 	}
 
@@ -225,12 +225,12 @@ int covan_exec(
 			count = _naccum.size();
 
 			if( not _naccum.complete() ) {
-				covan->status |= FAIL_L_DEGEN;
+				covan->status |= COVAN_E_COVAR_DEGEN;
 			} else
 			if( count >= arg_min_sample_count ) {
 				_naccum.spearman_correlation( &covan->result );
 			} else
-				covan->status |= FAIL_SAMPLES;
+				covan->status |= COVAN_E_SAMPLES_SIZE;
 
 		} else {
 
@@ -270,7 +270,7 @@ int covan_exec(
 			count = _caccum.size();
 
 			if( not _caccum.complete() ) {
-				covan->status |= FAIL_L_DEGEN;
+				covan->status |= COVAN_E_COVAR_DEGEN;
 			} else {
 				_caccum.cullBadCells( covan->result.log, MAXLEN_STATRESULT_LOG );
 				// ...cullBadCells won't allow the table to become degenerate. 
@@ -282,7 +282,7 @@ int covan_exec(
 						_caccum.chi_square( &covan->result );
 					}
 				} else
-					covan->status |= FAIL_SAMPLES;
+					covan->status |= COVAN_E_SAMPLES_SIZE;
 			}
 		}
 
@@ -349,14 +349,14 @@ int covan_exec(
 		count = _maccum.size();
 
 		if( not _maccum.complete() ) {
-			covan->status |= FAIL_L_DEGEN;
+			covan->status |= COVAN_E_COVAR_DEGEN;
 		} else
 		if( count >= arg_min_sample_count ) {
 			_maccum.kruskal_wallis( &covan->result );
 			if( _maccum.categoricalIsBinary() )
 				covan->sign = 0;// TODO: sign()
 		} else
-			covan->status |= FAIL_SAMPLES;
+			covan->status |= COVAN_E_SAMPLES_SIZE;
 	}
 
 	/**

@@ -126,7 +126,8 @@ command line, earlier options override later ones.
   --coroutine | -c  [ "%s" ]
 
 	Indicates the name of a coroutine in the Lua script to call
-	for index pairs. The default is sough
+	for index pairs. Of course, the default is sought only if a script 
+	was specified.
 #endif
 
 If none of the preceding options are given then analysis is run for
@@ -161,6 +162,24 @@ Output filters:
   
 	Only emit associations with p-values <= max.
 
+  --status-mask | -S <mask> [ 0x%02x ]
+
+	Normally tests that failed to even produce a p-value are filtered 
+	from the output. This (advanced!) argument gives you control over
+	how failed tests are filtered.
+	Several kinds of degeneracy can cause statistical tests to be either
+	infeasible to run or to yield infinite or NaN results.
+
+	0x01:Too few (non-missing) pairs (for the statistical test)
+	0x02:Degeneracy (e.g. constant value) in one feature of pair
+	0x04:Degeneracy in covariate pairs (e.g. all non-missing pairs same)
+	0x08:Floating-point trouble (NaN or +/- infinity produced)
+	0x10:Too many categories
+
+	Setting the corresponding bit in the mask -allows- filtering on that
+	condition. So setting the mask to 0 precludes all filtering on errors.
+	(Though p-value filtering remains independent.)
+
   --format | -f  [ "%s" ]
 
 	One of "std" or "short". Default is "TCGA".
@@ -187,7 +206,10 @@ Output filters:
 	you're running a debug version.  See the source code.
 #endif
 
+============================================================================
 Notes:
+============================================================================
+
 . Values in brackets '[ ]' above are defaults.
 . Options for which no default is listed either have no default or the
   default is the natural opposite of the option.

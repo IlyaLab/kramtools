@@ -8,11 +8,14 @@ extern "C" {
 
 struct CovariateAnalysis {
 
-#define FAIL_SAMPLES 0x00000001 // Too few samples after filtering.
-#define FAIL_E_DEGEN 0x00000002 // Early degeneracy, before filtering.
-#define FAIL_L_DEGEN 0x00000004 // Late degeneracy, after filtering.
-#define FAIL_TOOMANY 0x00000008 // Too many categories
-#define FAIL_MATH    0x00000010 // Something went south in the math.
+// In approximate order of likelihood...
+#define COVAN_E_SAMPLES_SIZE 0x00000001 // Too few samples
+#define COVAN_E_UNIVAR_DEGEN 0x00000002 // Univariate degeneracy
+#define COVAN_E_COVAR_DEGEN  0x00000004 // Covariate degeneracy
+#define COVAN_E_MATH         0x00000008 // Something went south in the math.
+#define COVAN_E_TOOMANY_CATS 0x00000010 // Too many categories
+#define COVAN_E_MASK         0x0000001F
+// This list must stay synchronized with the text in usage_full.txt.
 
 	unsigned status;
 

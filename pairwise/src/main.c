@@ -121,7 +121,7 @@ static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
   * This debug-only option is for the purpose of full-pass testing
   * without loads of irrelevant output.
   */
-static bool  dbg_exhaustive = false;
+static unsigned opt_status_mask        = COVAN_E_MASK;
 
 /**
   * Emit all results INCLUDING those with degeneracy.
@@ -219,18 +219,23 @@ static void _filter( ANALYSIS_FN_SIG ) {
 	memset( &covan, 0, sizeof(covan) );
 	covan_exec( pair, &covan );
 
+	// One last thing to check before filtering to insure corner cases
+	// don't fall through the following conditionals....
+
+	if( ! isfinite( covan.result.probability ) ) { 
+		covan.result.probability = 1.0;
+		covan.status             = COVAN_E_MATH;
+	}
+
 #ifdef _DEBUG
 	if( ! dbg_silent ) {
 #endif
+		if( ( covan.result.probability <= opt_p_value ) 
+			&& 
+			( ( covan.status & opt_status_mask ) == 0 ) ) {
 
-		if(
-#ifdef _DEBUG
-			dbg_exhaustive || 
-#endif
-			(( covan.result.probability <= opt_p_value ) && ( covan.status == 0 ) ) 
-
-			) {
 			g_format( pair, &covan, g_fp_output );
+
 		} else {
 			//_filtered[ g_summary.kind ] += 1;
 		}
@@ -649,6 +654,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			arg_min_sample_count,
 			arg_min_mixb_count,
 
+			opt_status_mask,
 			opt_p_value,
 			opt_format,
 			_YN(opt_warnings_are_fatal),
@@ -865,7 +871,12 @@ int main( int argc, char *argv[] ) {
 
 #ifdef _DEBUG
 		case 258:
-			dbg_exhaustive = strchr( optarg, 'X' ) != NULL;
+			if( strchr( optarg, 'X' ) != NULL ) {
+				// Turn OFF all filtering to turn on "exhaustive" 
+				// output mode.
+				opt_status_mask = 0;
+				opt_p_value     = 1.0;
+			}
 			dbg_silent     = strchr( optarg, 'S' ) != NULL;
 			break;
 #endif
@@ -1074,13 +1085,13 @@ int main( int argc, char *argv[] ) {
 			"select: %s\n"
 			"output: %s\n"
 #ifdef _DEBUG
-			" debug: silent: %s, exhaustive: %s\n"
+			" debug: silent: %s\n"
 #endif
 			,i_file,
 			feature_selection,
 			o_file
 #ifdef _DEBUG
-			, _YN( dbg_silent ) , _YN( dbg_exhaustive )
+			, _YN( dbg_silent )
 #endif
 			);
 	}

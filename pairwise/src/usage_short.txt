@@ -87,7 +87,10 @@ Output filters:
 	you're running a debug version.  See the source code.
 #endif
 
+============================================================================
 Notes:
+============================================================================
+
 . Values in brackets '[ ]' above are defaults.
 . Options for which no default is listed either have no default or the
   default is the natural opposite of the option.
