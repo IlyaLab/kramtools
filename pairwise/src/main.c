@@ -665,7 +665,6 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			"",
 #endif
 			exename,
-			exename,
 			opt_p_value,
 			MAX_CATEGORY_COUNT,
 		  	AUTHOR_EMAIL );
