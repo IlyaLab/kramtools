@@ -39,6 +39,7 @@
 #include <gsl/gsl_errno.h>
 
 #include "mtmatrix.h"
+#include "mtsclass.h"
 #include "featpair.h"
 #include "stattest.h"
 #include "analysis.h"
@@ -87,6 +88,9 @@ static const char *TYPE_PARSER_INFER   = "auto";
 static double arg_q_value              = 0.0;
 #define USE_FDR_CONTROL (arg_q_value > 0.0)
 
+// No default on opt_script because looking for a "default.lua" script
+// or any *.lua file invites all sorts of confusion with the defaults
+// and precedence of other row selection methods.
 static const char *opt_script          = NULL;
 static bool        opt_header          = true;
 static bool        opt_row_labels      = true;
@@ -110,6 +114,8 @@ static int         arg_verbosity       = 0;
 
 static bool  arg_webservice            = false;
 
+static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
+
 #ifdef _DEBUG
 /**
   * This debug-only option is for the purpose of full-pass testing
@@ -126,6 +132,26 @@ static bool  dbg_silent     = false;
 
 #ifdef HAVE_LUA
 static lua_State *_L = NULL;
+int _delegate_row_label_to_lua( const char *label ) {
+	fprintf( stderr, "interpret %s\n", label );
+	return MTM_STATCLASS_UNKNOWN;
+}
+
+static void _freeLua() {
+	lua_close( _L );
+}
+
+/**
+  * <source> may be literal Lua code or a filename reference.
+  */
+static int _load_script( const char *source, lua_State *state ) {
+
+	struct stat info;
+	return (access( source, R_OK ) == 0) && (stat( source, &info ) == 0)
+		? luaL_dofile(   state, source )
+		: luaL_dostring( state, source );
+}
+
 #endif
 
 
@@ -153,11 +179,6 @@ static void _freeMatrix() {
 	_matrix.destroy( &_matrix );
 }
 
-#ifdef HAVE_LUA
-static void _freeLua() {
-	lua_close( _L );
-}
-#endif
 
 void panic( const char *src, int line ) {
 	fprintf( stderr, "panic on %s:%d", src, line );
@@ -324,9 +345,73 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 
 /***************************************************************************
   * Row selection iterators
-  * Each of these (currently 4) methods takes arguments specific to the
+  * Each of these 5 methods takes arguments specific to the
   * source of input pairs and uses file static state for output.
+  * All but the first delegate to the _analyze function which may be a
+  * filter on immediate-mode output or a caching function for FDR.
   */
+
+// BEGIN:RSI
+
+static bool _is_integer( const char *pc ) {
+	while( *pc ) if( ! isdigit(*pc++) ) return false;
+	return true;
+}
+
+static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
+
+	static const char *MISSING_MSG
+		= "you specified row %s for a matrix without row names.\n";
+
+	int econd;
+	char *right, *left = alloca( strlen(csv)+1 );
+	struct CovariateAnalysis covan;
+	struct feature_pair pair;
+
+	memset( &pair,  0, sizeof(pair) );
+	memset( &covan, 0, sizeof(covan) );
+
+	// Split the string in two...
+
+	strcpy( left, csv );
+	right = strchr( left, ',' );
+	if( NULL == right )
+		errx( -1, "missing comma separator in feature pair \"%s\"", left );
+	*right++ = '\0';
+
+	// Lookup each part.(They need not be the same format.)
+
+	if( _is_integer( left ) ) {
+		pair.l.offset = atoi( left );
+		mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
+		econd = mtm_fetch_by_offset( &_matrix, &(pair.l) );
+	} else 
+	if( HAVE_ROW_LABELS ) {
+		pair.l.name   = left;
+		mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+		econd = mtm_fetch_by_name( &_matrix, &(pair.l) );
+	} else
+		errx( -1, MISSING_MSG, left );
+
+	if( _is_integer( right ) ) {
+		pair.r.offset = atoi( right );
+		mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
+		econd = mtm_fetch_by_offset( &_matrix, &(pair.r) );
+	} else
+	if( HAVE_ROW_LABELS ) {
+		pair.r.name = right;
+		mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+		econd = mtm_fetch_by_name( &_matrix, &(pair.r) );
+	} else
+		errx( -1, MISSING_MSG, right );
+
+	covan_exec( &pair, &covan );
+
+	g_format( &pair, &covan, g_fp_output );
+
+	return 0;
+}
+
 
 static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 
@@ -359,10 +444,9 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 		fpair.l.name  = left;
 		fpair.r.name = right;
 
-		if( fetch_by_name( &_matrix, &fpair ) != 2 ) {
+		if( fetch_by_name( &_matrix, &fpair ) ) {
 
-			fprintf( stderr,
-				"error: one or both of...\n"
+			warnx( "error: one or both of...\n"
 				"\t1) %s\n"
 				"\t2) %s\n"
 				"\t...not found.\n",
@@ -372,9 +456,8 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 				break;
 			else
 				continue; // no reason we -can't- continue
-		}
-
-		_analyze( &fpair );
+		} else
+			_analyze( &fpair );
 	}
 
 	if( left )
@@ -392,12 +475,11 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 
 	while( get_base10_ints( fp, arr, 2 ) == 2 ) {
 
-		fpair.l.offset  = arr[0];
+		fpair.l.offset = arr[0];
 		fpair.r.offset = arr[1];
 
-		if( fetch_by_offset( &_matrix, &fpair ) != 2 ) {
-			fprintf( stderr, 
-				"error: one of row indices (%d,%d) not in [0,%d)\n"
+		if( fetch_by_offset( &_matrix, &fpair ) ) {
+			warnx( "error: one of row indices (%d,%d) not in [0,%d)\n"
 				"\tjust before byte offset %ld in the stream.\n"
 				"\tAborting...\n",
 				fpair.l.offset,
@@ -408,9 +490,8 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 				break;
 			else	
 				continue; // no reason we -can't- continue
-		}
-		
-		_analyze( &fpair );
+		} else
+			_analyze( &fpair );
 	}
 	return 0;
 }
@@ -420,15 +501,51 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 
 	struct feature_pair fpair;
+	int isnum, lua_status;
 
-	while( false ) {
-		_analyze( &fpair );
+	lua_getglobal( _L, opt_coroutine );
+
+	assert( ! lua_isnil( _L, -1 ) /* because it was checked early */ );
+
+	do {
+
+		lua_pushnumber( _L, _matrix.rows );
+		lua_status = lua_resume( _L, NULL, 1 );
+
+		if( lua_status == LUA_YIELD ) {
+
+			fpair.r.offset = lua_tonumberx( _L, -1, &isnum );
+			fpair.l.offset = lua_tonumberx( _L, -2, &isnum );
+			lua_pop( _L, 2 );
+
+			if( fetch_by_offset( &_matrix, &fpair ) ) {
+				warnx( "one or both of %s-generated row indices (%d,%d) not in [0,%d)\n",
+					opt_coroutine,
+					fpair.l.offset,
+					fpair.r.offset,
+					_matrix.rows );
+				if( opt_warnings_are_fatal ) 
+					break;
+				else	
+					continue; // no reason we -can't- continue
+			} else
+				_analyze( &fpair );
+
+		} else
+		if( lua_status == LUA_OK )
+			break;
+		else { // some sort of error occurred.
+			fputs( lua_tostring( _L, -1 ), stderr );
+		}
+
 		if( g_sigint_received ) {
 			time_t now = time(NULL);
-			fprintf( stderr, "# main analysis loop interrupted @ %s", ctime(&now) );
+			fprintf( stderr, "analysis loop interrupted @ %s", ctime(&now) );
 			break;
 		}
-	}
+
+	} while( lua_status == LUA_YIELD );
+
 
 	return 0;
 }
@@ -495,29 +612,12 @@ static int /*AALL*/ _analyze_all_pairs() {
 	return 0;
 }
 
-
-#ifdef HAVE_LUA
-/**
-  * <source> may be literal Lua code or a filename reference.
-  */
-static int _load_script( const char *source, lua_State *state ) {
-
-	struct stat info;
-	return (access( source, R_OK ) == 0) && (stat( source, &info ) == 0)
-		? luaL_dofile(   state, source )
-		: luaL_dostring( state, source );
-}
-#endif
+// END:RSI
 
 
 /***************************************************************************
   * Online help
   */
-
-static bool _is_integer( const char *pc ) {
-	while( *pc ) if( ! isdigit(*pc++) ) return false;
-	return true;
-}
 
 static const char *_YN( bool y ) {
 	return y ? "yes" : "no";
@@ -607,7 +707,7 @@ int main( int argc, char *argv[] ) {
 
 	if( argc < 2 ) { // absolute minimum args: <executable name> <input matrix>
 		_print_usage( argv[0], stdout, USAGE_SHORT );
-		exit(0);
+		exit( EXIT_SUCCESS );
 	}
 
 	/**
@@ -719,7 +819,7 @@ int main( int argc, char *argv[] ) {
 				warnx( "Seriously...%d samples is acceptable?\n"
 					"I don't think so... ;)\n", 
 					arg_min_sample_count );
-				exit(-1);
+				exit( EXIT_FAILURE );
 			}
 			break;
 		////////////////////////////////////////////////////////////////////
@@ -756,12 +856,12 @@ int main( int argc, char *argv[] ) {
 
 		case '?': // help
 			_print_usage( argv[0], stdout, USAGE_SHORT );
-			exit(0);
+			exit( EXIT_SUCCESS );
 			break;
 
 		case 'X': // help
 			_print_usage( argv[0], stdout, USAGE_LONG );
-			exit(0);
+			exit( EXIT_SUCCESS );
 			break;
 
 #ifdef _DEBUG
@@ -774,7 +874,7 @@ int main( int argc, char *argv[] ) {
 			break;
 		default:
 			printf ("error: unknown option: %c\n", c );
-			exit(-1);
+			exit( EXIT_FAILURE );
 		}
 		if( -1 == c ) break;
 
@@ -782,29 +882,40 @@ int main( int argc, char *argv[] ) {
 
 #ifdef HAVE_LUA
 
-	/**
-	  * Load the Lua from file or command line before anything else.
-	  */
-
 	if( opt_script ) {
+
+		/**
+		  * Create a Lua state machine and load/run the Lua script from file
+		  * or command line before anything else.
+		  */
 
 		_L = luaL_newstate();
 		if( _L ) {
-			atexit( _freeLua );
+			atexit( _freeLua ); // ...so lua_close needed NOWHERE else.
 			luaL_openlibs( _L );
 			if( _load_script( opt_script, _L ) != LUA_OK ) {
-				errx( -1, "failed executing \"%s\": %s", 
+				errx( -1, "in \"%s\": %s", 
 					opt_script, lua_tostring( _L,-1) );
-				lua_close( _L );
 			}
 		} else
 			errx( -1, "failed creating Lua statespace" );
 
-		// Additionally, if a Lua script was provided but no coroutine
-		// was specified, see whether a function with the default coroutine
-		// name exists...
+		/**
+		  * Fail early!
+		  * If the user provided a coroutine name, check for its presence.
+		  * Otherwise, see if the default coroutine is present.
+		  * Otherwise, Lua is not being used to generate pairs.
+		  */
 
-		if( NULL == opt_coroutine ) {
+		if( opt_coroutine ) {
+
+			lua_getglobal( _L, opt_coroutine );
+			if( lua_isnil( _L, -1 ) ) {
+				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"", 
+					opt_coroutine, opt_script );
+			}
+
+		} else {
 
 			lua_getglobal( _L, DEFAULT_COROUTINE );
 
@@ -813,8 +924,20 @@ int main( int argc, char *argv[] ) {
 
 			// Non-existence of DEFAULT_COROUTINE is not an error;
 			// we assume user does NOT intend Lua to generate the pairs.
+		}
 
-			lua_pop( _L, 1 );
+		lua_pop( _L, 1 ); // clean the stack
+
+		/**
+		  * Similarly verify NOW that the a specified type parser is present.
+		  */
+		if( opt_type_parser ) {
+			lua_getglobal( _L, opt_type_parser );
+			if( lua_isnil( _L, -1 ) ) {
+				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"", 
+					opt_type_parser, opt_script );
+			}
+			lua_pop( _L, 1 ); // clean the stack
 		}
 
 		/**
@@ -823,29 +946,40 @@ int main( int argc, char *argv[] ) {
 		  * arguments will be ignored...
 		  */
 
-		if( opt_dry_run ) {
+		if( opt_dry_run && opt_coroutine != NULL ) {
+
+			const int COUNT
+				= getenv("DRY_RUN_COUNT")
+				? atoi( getenv("DRY_RUN_COUNT") )
+				: 8;
+
 			int isnum, lua_status = LUA_YIELD;
-			const char *coroutine
-				= opt_coroutine 
-				? opt_coroutine 
-				: DEFAULT_COROUTINE;
-			lua_getglobal( _L, coroutine );
+
+			lua_getglobal( _L, opt_coroutine );
 			if( lua_isnil( _L, -1 ) )
 				errx( -1, "%s not defined (in Lua's global namespace)", 
-					coroutine );
+					opt_coroutine );
+
 			while( lua_status == LUA_YIELD ) {
-				lua_status = lua_resume( _L, NULL, 0 );
+				lua_pushnumber( _L, COUNT );
+				lua_status = lua_resume( _L, NULL, 1 );
 				if( lua_status <= LUA_YIELD /* OK == 0, YIELD == 1*/ ) {
-					const int b = lua_tonumberx( _L, -1, &isnum );
-					const int a = lua_tonumberx( _L, -2, &isnum );
-					lua_pop( _L, 2 );
-					fprintf( stdout, "%d %d\n", a, b );
+					// Only output coroutine.yield'ed values...
+					if( lua_status == LUA_YIELD ) {
+						const int b = lua_tonumberx( _L, -1, &isnum );
+						const int a = lua_tonumberx( _L, -2, &isnum );
+						lua_pop( _L, 2 );
+						fprintf( stdout, "%d %d\n", a, b );
+					}
 				} else
-					fputs( lua_tostring( _L,-1), stderr );
+					fputs( lua_tostring( _L, -1 ), stderr );
 			}
 
-			exit(0);
+			exit( EXIT_SUCCESS );
 		}
+	} else 
+	if( opt_coroutine ) {
+		errx( -1, "coroutine specified (\"%s\") but no script", opt_coroutine );
 	}
 
 #endif
@@ -900,15 +1034,52 @@ int main( int argc, char *argv[] ) {
 		errx( -1, "error: stdin specified (or implied) for both pair list and the input matrix\n" );
 	}
 
+	/**
+	  * Emit intentions...
+	  */
+
 	if( arg_verbosity > 1 ) {
+
+#define MAXLEN_FS 75
+
+		char feature_selection[MAXLEN_FS+1];
+		feature_selection[MAXLEN_FS] = 0; // insure NUL termination
+
+		/**
+		  * Following conditional cascade must exactly match the larger
+		  * one below in order to accurately report feature selection method.
+		  */
+		if( opt_single_pair ) {
+			strncpy( feature_selection, opt_single_pair, MAXLEN_FS );
+		} else
+		if( opt_pairlist_source ) {
+			snprintf( feature_selection, 
+				MAXLEN_FS, 
+				"by %s in %s", 
+				opt_by_name ? "name" : "offset", opt_pairlist_source );
+		} else {
+#ifdef HAVE_LUA
+			if( opt_coroutine )
+				snprintf( feature_selection, 
+					MAXLEN_FS, 
+					"%s in %s", 
+					opt_coroutine, opt_script /* may be literal source */ );
+			else
+#endif
+				strncpy( feature_selection, "all-pairs", MAXLEN_FS );
+		}
+
+
 		fprintf( stderr,
 			" input: %s\n"
+			"select: %s\n"
 			"output: %s\n"
 #ifdef _DEBUG
 			" debug: silent: %s, exhaustive: %s\n"
 #endif
 			,i_file,
-			o_file 
+			feature_selection,
+			o_file
 #ifdef _DEBUG
 			, _YN( dbg_silent ) , _YN( dbg_exhaustive )
 #endif
@@ -934,7 +1105,7 @@ int main( int argc, char *argv[] ) {
 				FLAGS,
 				opt_na_regex,
 				MAX_CATEGORY_COUNT,
-				mtm_sclass_by_prefix,
+				opt_row_labels ? _interpret_row_label : NULL,
 				&_matrix );
 		fclose( fp );
 
@@ -945,7 +1116,7 @@ int main( int argc, char *argv[] ) {
 	}
 
 	if( opt_dry_run ) { // a second possible 
-		exit(0);
+		exit( EXIT_SUCCESS );
 	}
 
 	if( ! arg_webservice ) {
@@ -969,46 +1140,7 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_single_pair ) {
 
-		int econd;
-		struct CovariateAnalysis covan;
-		struct feature_pair pair;
-		char *left  = opt_single_pair;
-		char *right = strchr( left, ',' );
-
-		if( NULL == right )
-			errx( -1, "missing comma separator in feature pair \"%s\"", left );
-		*right++ = '\0';
-
-		memset( &pair, 0, sizeof(pair) );
-		memset( &covan, 0, sizeof(covan) );
-
-		if( _is_integer( left ) ) {
-			pair.l.offset = atoi( left );
-			mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
-			econd = mtm_fetch_by_offset( &_matrix, &(pair.l) );
-		} else 
-		if( opt_row_labels ) {
-			pair.l.name   = left;
-			mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
-			econd = mtm_fetch_by_name( &_matrix, &(pair.l) );
-		} else
-			errx( -1, "you tried to specify row names for a matrix without them.\n" );
-
-		if( _is_integer( right ) ) {
-			pair.r.offset = atoi( right );
-			mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
-			econd = mtm_fetch_by_offset( &_matrix, &(pair.r) );
-		} else
-		if( opt_row_labels ) {
-			pair.r.name = right;
-			mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
-			econd = mtm_fetch_by_name( &_matrix, &(pair.r) );
-		} else
-			errx( -1, "you tried to specify row names for a matrix without them.\n" );
-	
-		covan_exec( &pair, &covan );
-
-		g_format( &pair, &covan, g_fp_output );
+		_analyze_single_pair( opt_single_pair, opt_row_labels );
 
 	} else
 	if( opt_pairlist_source ) {

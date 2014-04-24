@@ -1,0 +1,7 @@
+import os
+import os.path
+
+Program( 'trylua', ['main.c'],
+	CFLAGS=['-O0', '-g', '-I'+os.path.join( os.environ["HOME"],"include")],
+	LIBPATH='-L'+os.path.join( os.environ["HOME"],"lib"), LIBS=['lua','m','dl'] )
+

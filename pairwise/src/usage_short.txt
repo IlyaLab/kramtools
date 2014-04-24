@@ -21,13 +21,6 @@ General options:
 
 	Show the exhaustive help (much longer than what you're reading).
 
-  --dry-run | -D
-
-	%s exits -just before- analysis begins. 
-	This provides a way to verify that a candidate input matrix is well-
-	formatted and (depending on verbosity) obtain other information about 
-	what -would- be done.
-
 ============================================================================
 Input matrix options:
 ============================================================================
@@ -64,6 +57,7 @@ command line, earlier options override later ones.
   --by-index | -x  { <filename> | "-" | "stdin" }
 
     Read pair of indices from the specified file ('-' means stdin).
+	The input stream or file can be very free-form:
 	-- Every contiguous sequence of decimal digits in the stream is
 	   treated as a row index.
 	-- Every consecutive pair of indices is treated as a feature pair
@@ -71,6 +65,8 @@ command line, earlier options override later ones.
 	-- Any non-digit character(s) can be used as separators, and
 	   no distinction is made between the separators within pairs
 	   and separators between pairs.
+	In other words exact format doesn't matter--digits need only by
+	separated by non-digits.
 
 If none of the preceding options are given then analysis is run for
 all N-choose-2 pairs of features using the "natural" ordering.
