@@ -182,7 +182,8 @@ Output filters:
 
   --format | -f  [ "%s" ]
 
-	One of "std" or "short". Default is "TCGA".
+	Either a magic value (e.g. the default) or...? 
+	Incompletely implemented.
 
   --fdr | -q
 

@@ -106,13 +106,13 @@ static const char *opt_coroutine       = NULL;
 static bool        opt_dry_run         = false;
 
 static double      opt_p_value         = 1.0;
-static const char *opt_format          = "foo";
+static const char *opt_format          = "TCGA";
 
 static bool     opt_warnings_are_fatal = false;
 
-static int         arg_verbosity       = 0;
+static int         opt_verbosity       = 0;
 
-static bool  arg_webservice            = false;
+static bool  opt_running_as_webservice = false;
 
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
@@ -632,14 +632,15 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 	extern const char *USAGE_UNABRIDGED;
 	extern const char *USAGE_ABRIDGED;
 
+	char debug_state[64];
+	debug_state[0] = 0;
+#ifdef _DEBUG
+	sprintf( debug_state, "(DEBUG) Compiled %s %s", __DATE__,__TIME__ );
+#endif
+
 	if( exhaustive )
 		fprintf( fp, USAGE_UNABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
-#ifdef _DEBUG
-			"(DEBUG)",
-#else
-			"",
-#endif
+			exename, _VER_MAJ, _VER_MIN, _VER_FIX, debug_state,
 			exename,
 			exename,
 			TYPE_PARSER_INFER,
@@ -654,18 +655,13 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_p_value,
 			opt_format,
 			_YN(opt_warnings_are_fatal),
-			arg_verbosity,
+			opt_verbosity,
 			MAX_CATEGORY_COUNT,
 			MAGIC_SUFFIX,
 			AUTHOR_EMAIL );
 	else
 		fprintf( fp, USAGE_ABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX,
-#ifdef _DEBUG
-			"(DEBUG)",
-#else
-			"",
-#endif
+			exename, _VER_MAJ, _VER_MIN, _VER_FIX, debug_state,
 			exename,
 			opt_p_value,
 			MAX_CATEGORY_COUNT,
@@ -696,8 +692,12 @@ int main( int argc, char *argv[] ) {
 	{
 		const char *ps
 			= strstr( argv[0], MAGIC_SUFFIX );
-		arg_webservice = ( NULL != ps ) && 
-			strcmp(ps, MAGIC_SUFFIX) == 0; // it's really a suffix
+		opt_running_as_webservice = ( NULL != ps )
+			&& strcmp(ps, MAGIC_SUFFIX) == 0; // it's really a suffix
+		if( opt_running_as_webservice ) {
+			opt_header     = false;
+			opt_row_labels = true;
+		}
 	}
 
 	gsl_set_error_handler( _error_handler );
@@ -718,10 +718,10 @@ int main( int argc, char *argv[] ) {
 	 * command line too and SHOULD BE MAINTAINED SO.
 	 */
 
-	if( arg_webservice ) {
+	if( opt_running_as_webservice ) {
 		// TODO: these need to be (re)defined.
 		opt_by_name        = true;
-		arg_verbosity      = 0;
+		opt_verbosity      = 0;
 		opt_p_value        = 1.0; // implies NO filtering.
 	}
 
@@ -852,7 +852,7 @@ int main( int argc, char *argv[] ) {
 			break;
 
 		case 'v': // verbosity
-			arg_verbosity = atoi( optarg );
+			opt_verbosity = atoi( optarg );
 			break;
 
 		case '?': // help
@@ -1044,7 +1044,7 @@ int main( int argc, char *argv[] ) {
 	  * Emit intentions...
 	  */
 
-	if( arg_verbosity > 1 ) {
+	if( opt_verbosity > 1 ) {
 
 #define MAXLEN_FS 75
 
@@ -1083,7 +1083,7 @@ int main( int argc, char *argv[] ) {
 #ifdef _DEBUG
 			"       debug: silent: %s\n"
 #endif
-			,arg_webservice ? "web service" : "command line",
+			,opt_running_as_webservice ? "web service" : "command line",
 			i_file,
 			feature_selection,
 			o_file
@@ -1105,7 +1105,7 @@ int main( int argc, char *argv[] ) {
 		const unsigned int FLAGS
 			= ( opt_header ? MTM_MATRIX_HAS_HEADER : 0 ) 
 			| ( opt_row_labels ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
-			| ( arg_verbosity & MTM_VERBOSITY_MASK);
+			| ( opt_verbosity & MTM_VERBOSITY_MASK);
 
 		const int econd
 			= mtm_parse( fp,
@@ -1126,7 +1126,7 @@ int main( int argc, char *argv[] ) {
 		exit( EXIT_SUCCESS );
 	}
 
-	if( ! arg_webservice ) {
+	if( ! opt_running_as_webservice ) {
 		if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
 			warn( "failed installing interrupt handler\n"
 				"\tCtrl-C will terminated gracelessly\n" );
@@ -1142,7 +1142,7 @@ int main( int argc, char *argv[] ) {
 		err( -1, "error: covan_init(%d)\n", _matrix.columns );
 	}
 
-	if( arg_verbosity > 0 ) 
+	if( opt_verbosity > 0 ) 
 		fprintf( g_fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
 
 	if( opt_single_pair ) {
@@ -1198,7 +1198,7 @@ int main( int argc, char *argv[] ) {
 		}
 	}
 
-	if( arg_verbosity > 0 ) {
+	if( opt_verbosity > 0 ) {
 		//int i;
 		fprintf( g_fp_output, "# Filter counts follow:\n" );
 #ifdef HAVE_ANALYSIS
