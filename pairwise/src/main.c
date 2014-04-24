@@ -116,13 +116,9 @@ static bool  arg_webservice            = false;
 
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
-#ifdef _DEBUG
-/**
-  * This debug-only option is for the purpose of full-pass testing
-  * without loads of irrelevant output.
-  */
 static unsigned opt_status_mask        = COVAN_E_MASK;
 
+#ifdef _DEBUG
 /**
   * Emit all results INCLUDING those with degeneracy.
   */
@@ -1079,15 +1075,16 @@ int main( int argc, char *argv[] ) {
 				strncpy( feature_selection, "all-pairs", MAXLEN_FS );
 		}
 
-
 		fprintf( stderr,
-			" input: %s\n"
-			"select: %s\n"
-			"output: %s\n"
+			"defaults for: %s\n"
+			"       input: %s\n"
+			"      select: %s\n"
+			"      output: %s\n"
 #ifdef _DEBUG
-			" debug: silent: %s\n"
+			"       debug: silent: %s\n"
 #endif
-			,i_file,
+			,arg_webservice ? "web service" : "command line",
+			i_file,
 			feature_selection,
 			o_file
 #ifdef _DEBUG
