@@ -73,7 +73,7 @@ void format_tcga(
 	if( covan->sign == 0 )
 		strcpy( rho, "NA" );
 	else 
-		sprintf( rho, "%+d", covan->sign );
+		sprintf( rho, "%+.2f", covan->sign );
 
 	NLOGP[0] = _clamped( covan->result.probability );
 	NLOGP[1] = _clamped( covan->waste[0].result.probability );
@@ -138,7 +138,7 @@ void format_standard(
 
 	fprintf( fp, 
 		"%s:%s\t"
-		"%+d\t"
+		"%+.2f\t"
 		"%d\t"
 		"%.3e\t"
 		"%d\t%.3e\t"

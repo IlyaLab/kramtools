@@ -49,7 +49,7 @@ struct CovariateAnalysis {
 	  * (so an order is implied). Unused if either feature is categorical
 	  * with >2 categories.
 	  */
-	int sign;
+	float sign;
 
 	struct Statistic result;
 };

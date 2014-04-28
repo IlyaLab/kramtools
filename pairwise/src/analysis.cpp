@@ -277,7 +277,7 @@ int covan_exec(
 				if( count >= arg_min_sample_count ) {
 					if( _caccum.is2x2() ) {
 						_caccum.fisher_exact( &covan->result );
-						covan->sign = 0;// TODO: sign()
+						covan->sign = _caccum.spearman_rho();
 					} else {
 						_caccum.chi_square( &covan->result );
 					}
@@ -354,7 +354,7 @@ int covan_exec(
 		if( count >= arg_min_sample_count ) {
 			_maccum.kruskal_wallis( &covan->result );
 			if( _maccum.categoricalIsBinary() )
-				covan->sign = 0;// TODO: sign()
+				covan->sign = _maccum.spearman_rho();
 		} else
 			covan->status |= COVAN_E_SAMPLES_SIZE;
 	}
