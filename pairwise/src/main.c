@@ -656,15 +656,15 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_format,
 			_YN(opt_warnings_are_fatal),
 			opt_verbosity,
-			MAX_CATEGORY_COUNT,
 			MAGIC_SUFFIX,
+			MAX_CATEGORY_COUNT,
+			MTM_MAX_MISSING_VALUES,
 			AUTHOR_EMAIL );
 	else
 		fprintf( fp, USAGE_ABRIDGED,
 			exename, _VER_MAJ, _VER_MIN, _VER_FIX, debug_state,
 			exename,
 			opt_p_value,
-			MAX_CATEGORY_COUNT,
 		  	AUTHOR_EMAIL );
 }
 
@@ -1144,6 +1144,16 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_verbosity > 0 ) 
 		fprintf( g_fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
+
+
+	/**
+	  * Here the main decision is made regrding feature selection. 
+	  * In order of precedence:
+	  * 1. single pair
+	  * 2. explicit pairs (by name or by offset)
+	  * 3. Lua-generated offsets
+	  * 4. all-pairs
+	  */
 
 	if( opt_single_pair ) {
 

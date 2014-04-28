@@ -94,8 +94,12 @@ Input matrix options:
 Feature (row) pair selection options:
 ============================================================================
 
-These options are listed in order of precedence; if multiple appear on the
-command line, earlier options override later ones.
+These options are mutually exclusive; they are listed below in order of 
+precedence. If a command line contains more than one of the following
+options, --pair overrides --by-{name|index}.
+#ifdef HAVE_LUA
+--by-{name|index} overrides --coroutine.
+#endif
 
   --pair | -P      <row1>,<row2>
 
@@ -128,9 +132,9 @@ command line, earlier options override later ones.
 	Indicates the name of a coroutine in the Lua script to call
 	for index pairs. Of course, the default is sought only if a script 
 	was specified.
-#endif
 
-If none of the preceding options are given then analysis is run for
+#endif
+If none of the preceding options are given, then analysis is run for
 all N-choose-2 pairs of features using the "natural" ordering.
 
 ============================================================================
@@ -215,11 +219,18 @@ Notes:
 . Options for which no default is listed either have no default or the
   default is the natural opposite of the option.
 . "Index" everywhere actually means offset; the first row is row 0.
-. Categorical features MUST have <= %d categories.
 . Parsing and preprocessing of the input matrix is handled by an independent
   library. See its documentation for further information.
 . If the name of the executable file of (or symlink to) this program ends 
   in the suffix "%s", very different defaults are activiated. 
   See the source code or...
+
+============================================================================
+Manifest limitations
+============================================================================
+
+. Categorical features MUST have <= %d categories.
+. No feature may have more than %d missing values.
+
 Bug %s with troubles.
 

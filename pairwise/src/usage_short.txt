@@ -40,8 +40,12 @@ Input matrix options:
 Feature (row) pair selection options:
 ============================================================================
 
-These options are listed in order of precedence; if multiple appear on the
-command line, earlier options override later ones.
+These options are mutually exclusive; they are listed below in order of 
+precedence. If a command line contains more than one of the following
+options, --pair overrides --by-{name|index}.
+#ifdef HAVE_LUA
+--by-{name|index} overrides --coroutine. (See the advanced help.)
+#endif
 
   --pair | -P      <row1>,<row2>
 
@@ -68,7 +72,7 @@ command line, earlier options override later ones.
 	In other words exact format doesn't matter--digits need only by
 	separated by non-digits.
 
-If none of the preceding options are given then analysis is run for
+If none of the preceding options are given, then analysis is run for
 all N-choose-2 pairs of features using the "natural" ordering.
 
 ============================================================================
@@ -94,6 +98,6 @@ Notes:
 . Values in brackets '[ ]' above are defaults.
 . Options for which no default is listed either have no default or the
   default is the natural opposite of the option.
-. Categorical features MUST have <= %d categories.
+
 Bug %s with troubles.
 
