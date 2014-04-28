@@ -1,0 +1,14 @@
+Following is simply an "audit" list of largely corner cases to
+manually hit:
+
+Lua
+	Lua syntax error
+	specified coroutine missing
+	specified type parser missing
+	specified script doesn't exist
+
+Behavior when
+	column/row flags don't match the input
+
+Verify
+	all-pairs and Lua-equivalent emit EXACTLY IDENTICAL OUTPUT
