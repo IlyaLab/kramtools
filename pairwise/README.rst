@@ -2,60 +2,48 @@
 ABOUT
 ============================================================================
 
-This software consists of two parts:
+This is command-line software for performing (relatively) rapid pairwise 
+analysis of *mixed-type* covariate data to identify *associations* between 
+covariates.
 
-	1. A Python (Python3) preprocessing script (prep.py)
-	2. A compiled (C/C++) executable (pairwise).
+The prototypical kind of association is (Pearson) correlation, but Pearson 
+correlation is, in fact, only one of a wide variety of statistical tests
+that can be used to establish that two variables ("features") are related.
+This program implements a selection of tests and automatically chooses
+the appropriate test for a given pair of covariates. It also carries out
+a number of other processes on data to increase the efficacy of the
+statistical tests.
 
-The pairwise executable relies on a particular binary format produced by the Python script.
-**The pairwise executable cannot be run on anything but the output of prep.py.**
+This software has three high-level functions:
 
-This software has four high-level functions:
+	1. (Optionally) select pairs of features (rows from the input matrix)
+	   specified in one of several ways by the command line.
+	   By default it iterates through *all* pairs.
+	2. For every pair of features it chooses and executes a statistical test 
+	   according to the features' statistical classes (boolean, categorical, 
+	   ordinal, continuous).
+	3. Report a configurable amount of information on each test in either
+	   tabular or (soon) JSON format subject to configurable filters.
+	   Output filters include the option of Benjamini-Hochberg FDR conrol.
 
-	1. It (optionally) selects pairs of features (rows) from a preprocessed binary matrix.
-		By default it iterates through *all* pairs.
-	2. For every pair of features in computes several statistics 
-		according to the types of features (numeric/continuous vs. categorical/discrete).
-	3. It emits in a specified format (at most) 1 row for every pair of features analyzed
-		subject to specified filter(s).
-	4. It (optionally) carries out Benjamini-Hochberg FDR conrol.
+Every run of pairwise involves these function, but *many* options control 
+the exact behavior.
 
-The input matrix may contain arbitrary amounts of missing data.
+Input consists of textual matrices of tab-separated values in which
+rows represent features and columns represent samples. See the libmtm
+project in a neighboring directory tree for thorough documentation of 
+input options and constraints as well as rationales behind the "statistical
+classes" mentioned above.
 
-----------------------------
-Preprocessing
-----------------------------
+**In the interest of minimizing stale and out-of-sync documentation functionality
+that is thoroughly documented in the command-line executable's help text is not
+repeated here.**
 
-The prep.py preprocesses a text matrix in "TCGA" format to:
+^^^^
 
-	1. validate data types and detect univariate degeneracies
-	2. flag missing data in a uniform way
-	3. convert categorical labels to integer labels
-	4. and checking for gross violations of assumptions
-
-...all so C code doesn't have to.
-
-The following summarizes the product of the prep.py script.
-
-.. image:: ./doc/prepoutput.png
-
-The format of the "binary data matrix" block is documented in prep.py.
-
--------------
-Row selection
--------------
-
-On any given execution pairwise either calculates the statistics exhaustively
-on the N-choose-2 row pairs (in the "natural" order), or it subselects row pairs:
-
-	1. ...specified by a pair of range expressions in row numbers.
-	2. ...specified as name pairs
-
-See the online help for details.
-
-----------
-Statistics
-----------
+============================================================================
+STATISTICS
+============================================================================
 
 Three separate statistics are computed for each pair of features.
 One of the following is calculated *between* the features using only 
@@ -87,9 +75,13 @@ is calculated between the dark blue and dark green.
 The K-W statistic *within* each feature provides some indication of whether 
 the statistical result *between* the features was skewed by missing data.
 
-The Spearman correlation is calculated for numeric pairs as well as when
-all categorical features are *binary* (i.e. between a numeric feature and a binary
-categorical or between two binary categorical).
+The Spearman correlation is calculated for all pairs involving ordered
+data. This obviously includes continuous pairs, but it also includes
+categorical data with only two categories (i.e. boolean) since two categories
+are always orderable (implicitly or otherwise). In other words, the Spearman
+correlation is computed as long as one of the features is *not* strictly 
+categorical with more than 2 categories. The absolute value of the Spearman 
+correlation in some cases may not be meaningful, but its sign is.
 
 The case where both features are categorical is slightly more
 complex. In the interest of having statistically "good" tables
@@ -100,12 +92,13 @@ guaranteed to be optimal. If after this "culling" step either of
 the table's dimensions exceeds 2, a Chi-Square test is performed. 
 Otherwise, if the table is 2x2, the Fisher exact test is performed.
 
-------------------------
-Filtering and formatting
-------------------------
+^^^^
 
-See pairwise' online help for reporting/formatting options. 
-This is unresolved and in flux.
+============================================================================
+OUTPUT FILTERING AND FORMATTING
+============================================================================
+
+
 
 ----------------------------
 False discovery rate control
@@ -114,13 +107,13 @@ False discovery rate control
 This is implemented but untested.
 
 ^^^^
-
 ============================================================================
 BUILDING
 ============================================================================
 
 Dependencies:
 	GNU Scientific Library (GSL_) 
+	The Lua library is an optional dependency.
 
 Update the Makefile's GSLINC and GSLLIB variables with the location of
 GSL's headers and libraries on your system.
