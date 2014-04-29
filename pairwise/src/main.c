@@ -10,6 +10,17 @@
   *    b) a cache to be post-processed (for FDR control) and subsequently
   *       output.
   *
+  * Implementation notes:
+  *   1) If row labels are present then, by default, they are parsed to
+  *      infer the statistical class of the row. Moreover, the parser is
+  *      one for "TCGA" format by default. This is so that Sheila et al.'s
+  *      scripts need not pass an option for something they consider
+  *      "standard." In order to minimize the danger of mis-interpreted
+  *      row labels a conservative definition is used (by the
+  *      mtm_sclass_by_prefix function). The first two characters of the row
+  *      label must match /[BCDFNO][[:punct:]]/.
+  *      Otherwise, mtm_sclass_by_prefix returns MTM_STATCLASS_UNKNOWN,
+  *      and the class is inferred from the data content of the row.
   * Audit:
   *   1) All error exits return -1. When used as webservice proper status
   *      returns is the least we can do...
