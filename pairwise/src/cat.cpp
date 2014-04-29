@@ -657,7 +657,7 @@ int CatCovars::fisher_exact( struct Statistic *result
 	  * x == a
 	  */
 	result->name
-		= "Fisher Exact";
+		= "Fisher_Exact";
 	result->sample_count
 		= sample_count;
 	result->probability

@@ -96,7 +96,7 @@ int NumCovars::spearman_correlation( struct Statistic *result
 			= sqrt( (N - 3.0) / 1.06 ) * FisherTransform;
 		// ...z ~ N(0,1) under null hyp of statistical independence.
 		result->name
-			= "Spearman rho, Fisher transform";
+			= "Spearman_rho,Fisher_transform";
 		result->probability = gsl_cdf_ugaussian_Q( fabs(z) );
 #else
 		const double t 
@@ -105,7 +105,7 @@ int NumCovars::spearman_correlation( struct Statistic *result
 		// x2 below to make it a two-tailed test. (t-distribution
 		// is symmetric).
 		result->name
-			= "Spearman rho, t-dist approx.";
+			= "Spearman_rho,t-distribution";
 		result->probability = 2* gsl_cdf_tdist_Q(t,N-2.0);
 #endif
 		result->value = rho;

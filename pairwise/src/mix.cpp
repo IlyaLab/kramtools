@@ -254,7 +254,7 @@ int MixCovars::kruskal_wallis( struct Statistic *result/*struct CommonStats *cs,
 	}
 
 	result->name
-		= "Kruskal-Wallis K";
+		= "Kruskal-Wallis_K";
 	result->sample_count
 		= N;
 	result->value
