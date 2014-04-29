@@ -89,8 +89,8 @@ class CovariatePair:
 
 	def writeForPairwise( self, fp ):
 		name = self._names()
-		print( name[0], self.f1, sep="\t", file=fp )
-		print( name[1], self.f2, sep="\t", file=fp )
+		print( name[0]+":", self.f1, sep="\t", file=fp )
+		print( name[1]+":", self.f2, sep="\t", file=fp )
 
 	def writeForR( self, fp ):
 		print( *self._names(), sep="\t", file=fp )

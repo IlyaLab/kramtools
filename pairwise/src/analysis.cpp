@@ -155,6 +155,8 @@ int covan_exec(
 	unsigned unused2 = 0;
 	unsigned count   = 0;
 
+	strcpy( covan->result.log, "-" ); // to insure column count consistency in tabular output
+
 	/**
 	  * Determine feature classes and check for univariate degeneracy.
 	  * Univariate degeneracy precludes further analysis. 
@@ -229,6 +231,8 @@ int covan_exec(
 			} else
 			if( count >= arg_min_sample_count ) {
 				_naccum.spearman_correlation( &covan->result );
+				// TODO: Following line won't be necessary after output formatting is re-implemented for V2.0.
+				covan->sign = covan->result.value;
 			} else
 				covan->status |= COVAN_E_SAMPLES_SIZE;
 

@@ -9,9 +9,8 @@ import os
 from covpair import CovariatePair
 from randfeat import Feature,Num,Cat
 
-_PREPROC_INPUT = '/dev/shm/z.tab'
-_R_INPUT = os.path.splitext(_PREPROC_INPUT)[0]+'.ref'
-_PAIRWISE_INPUT = os.path.splitext(_PREPROC_INPUT)[0]+'.bin'
+_PAIRWISE_INPUT = '/dev/shm/z.tab'
+_R_INPUT = os.path.splitext(_PAIRWISE_INPUT)[0]+'.ref'
 _MAX_K = 8
 
 _MAX_SAMPLES     = 1000
@@ -19,7 +18,7 @@ _MAX_SAMPLES     = 1000
 # degeneracy generation.
 _PROB_UNI_DEGEN = float( os.environ.get( "UNIDEGEN", 0.0 ) ) #-1.00
 _PROB_COV_DEGEN = float( os.environ.get( "COVDEGEN", 0.0 ) ) #-1.00
-_REQUIRED_EXECUTABLES = ( 'prep.py', 'pairwise' )
+_REQUIRED_EXECUTABLES = ( 'pairwise', )
 
 # Verify user's directory is set up to run.
 # _REQUIRED_EXECUTABLES may require user setup (symlinking)...
@@ -132,7 +131,7 @@ def _verify( pout, rout, case ):
 		# R output should have p-value, rho
 		if not _closeEnough( pval, float(rfields[0]) ):
 			return "p-value"
-		if not _closeEnough( prho, float(rfields[1]) ):
+		if case == 0 and not _closeEnough( prho, float(rfields[1]) ):
 			return "rho"
 	else: # CC
 		if not _closeEnough( pval, float(rfields[0]) ):
@@ -172,16 +171,14 @@ for tnum in range(TEST_COUNT):
 	# Generate a test case
 	spec = _generateTestCase()
 	# Generate files
-	with open(_PREPROC_INPUT,"w") as fp:
+	with open(_PAIRWISE_INPUT,"w") as fp:
 		spec['covar'].writeForPairwise( fp )
 	with open(_R_INPUT,"w") as fp:
 		spec['covar'].writeForR( fp )
 	# Run the executables
 	try:
-		subprocess.check_call(
-			['python3','-O','prep.py', '-H', '-O', _PREPROC_INPUT ] )
 		p_out = subprocess.check_output(
-			['./pairwise','-X','-F','std',_PAIRWISE_INPUT], 
+			['./pairwise','-h','-f','std',_PAIRWISE_INPUT], 
 			universal_newlines=True )
 		r_out = subprocess.check_output(
 			['R','--slave','-f',R_SCRIPTS[spec['types']],'--args',_R_INPUT ], 
