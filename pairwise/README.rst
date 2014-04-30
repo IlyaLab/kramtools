@@ -95,10 +95,69 @@ Otherwise, if the table is 2x2, the Fisher exact test is performed.
 ^^^^
 
 ============================================================================
-OUTPUT FILTERING AND FORMATTING
+OUTPUT (FILTERING AND FORMATTING)
 ============================================================================
 
+The *content* and *format* of output are *independently* configured.
+Ouput is provided in one of two overarching formats: tabular and JSON_.
+The "micro" formatting of tabular output is also tweakable.
 
+.. _JSON : http://json.org
+
+----------------------------
+Content filtering
+----------------------------
+
+The following tables summarize the information available for every pair
+of features analyzed. The *content* of the output can be filtered by
+providing a format string that consists of the regular expressions listed
+below separated by *any kind* of whitespace.
+
+=========================== ==================================
+Covariate information       Format regular expression
+=========================== ==================================
+sample count                c(ount)? [1]_
+statistic name              st(atistic)?
+test error                  e(rror)?[2]_
+sign of correlation         si(gn)?("[3]_")?
+statistic value             v(alue)?("[3]_")?
+p-value                     p(robability)?("[3]_")?
+-log10(p-value)             P(robability)?("[3]_")?
+extra info                  e?x(tra)? [4]_
+=========================== ==================================
+
+.. [1] Count of the number of *pairs* in which neither value is missing.
+.. [2] This is a hexadecimal value reporting the bit flags of the test.
+       See online help.
+.. [3] A printf-style format string valid for a floating-point value 
+       delimited by double quotes.
+.. [4] This is a semi-structures string consisting of any additional
+       information made available by the statistical test (e.g. number of
+       ties in rank data, or number of empty cells in a contingency table).
+
+Each univariate feature is potentially subjected to a transformation
+(e.g. outlier culling) as well as "internal" statistical tests as
+described above. 
+
+=========================== ================================
+Univariate information      Format regular expression 
+=========================== ================================
+feature names               [<&>]f(eature)? [1]_
+feature offsets             [<&>]o(ffset)? [1]_
+feature statistical classes [<&>]cl(ass)? [1]_
+transformation              [<&>]t(ransform)?
+count of unused values      [<&>]u(nused)?
+statistic                   [<&>]s(tatistic)?
+statistic value             [<&>]v(alue)?
+p-value                     [<&>]p(robability)?
+extra info                  [<&>]e?x(tra)?
+=========================== ================================
+
+The left or right feature's univariate information is specified with "<"
+and ">", respectively. "Left" and "right" corresponds to the ordering
+of the covariate
+"&" requests reporting of the information for both univariate features
+as adjacent pairs.
 
 ----------------------------
 False discovery rate control
@@ -107,13 +166,14 @@ False discovery rate control
 This is implemented but untested.
 
 ^^^^
+
 ============================================================================
 BUILDING
 ============================================================================
 
 Dependencies:
-	GNU Scientific Library (GSL_) 
-	The Lua library is an optional dependency.
+	1. GNU Scientific Library (GSL_) 
+	2. Lua_ is an optional dependency
 
 Update the Makefile's GSLINC and GSLLIB variables with the location of
 GSL's headers and libraries on your system.
@@ -126,6 +186,7 @@ Running::
 development environment builds the pairwise executable. 
 
 .. _GSL: http://www.gnu.org/software/gsl
+.. _Lua: http://www.lua.org
 
 ^^^^
 
@@ -144,8 +205,7 @@ The exec.py script in test/blackbox:
 
 	1. generates random data in R 
 	2. analyzes the data in R
-	3. preprocesses (using prep.py) and analyzes the data in pairwise
-	4. compares the results of the two data paths.
+	3. compares the results of the two data paths.
 
 It is run simply as::
 
@@ -161,17 +221,11 @@ in cat.cpp
 USAGE
 ============================================================================
 
-Run the tools as::
+Run the pairwise as::
 
-	python3 prep.py yourdata.tab 
+	./pairwise yourdata.tab 
 
-	./pairwise-1.3.0 yourdata.bin 
-
-Many command line options are available. See::
-
-	python3 prep.py --help
-
-...and run pairwise with no arguments.
+Many command line options are available. Run pairwise with no arguments.
 
 ^^^^
 
@@ -180,9 +234,6 @@ LIMITATIONS
 ============================================================================
 
 1. No categorical feature may have more than 32 categories.
-2. Because of the (very unfortunate) decision to use 32-bit offsets in the
-	header, the binary file produced by prep.py must not exceed 4GB.
-3. The commandline row selection specification must not exceed 1024 chars.
 
 ^^^^
 
@@ -191,30 +242,20 @@ OPEN ISSUES/TODO/WISHLIST
 ============================================================================
 
 ----------------------------------------------------------------------------
-Formatting/reporting
-----------------------------------------------------------------------------
-
-The "ABOUT" section at the top paints a happier picture of things than
-actually exists right now.
-
-*How* statistical results are emitted (the format) needs to be more cleanly
-separated from *what* is reported (filtering)...and, more importantly, what 
-is "done" with results not reported. See below.
-
-----------------------------------------------------------------------------
 Reporting/filtering/counting of tests
 ----------------------------------------------------------------------------
 
 Computation of statistics can fail for a variety of reasons related to
 degeneracies in the input data. Some of these can be detected early (before
-computation); some only become apparent in the coarse of computation.
+computation begins); some only become apparent in the coarse of computation.
 
 Handling of degeneracies is furthermore bound up with three different
 requirements that are somewhat at odds:
-1. maximizing useful output, "useful" being context-dependent.
-2. the need to filter output (i.e. to avoid a combinatoric explosion
-of "uninteresting" results)
-3. the need to count actually performed tests (for FDR control)
+
+	1. maximizing useful output, "useful" being context-dependent.
+	2. the need to filter output (i.e. to avoid a combinatoric explosion
+	   of "uninteresting" results)
+	3. the need to count *actually-performed* tests (for FDR control)
 
 The typical sparsity of "interesting" results in the N-choose-2 possibilities
 demands some in-program filtering (as opposed to simply piping the output
@@ -231,13 +272,6 @@ implementation.
 Currently, NaNs are *intentionally* allowed to propagate to output; this is 
 not a bug.
 
-----------------------------------------------------------------------------
-Row subselection
-----------------------------------------------------------------------------
-
-Iteration scheme is inelegant, but at least it is cleanly encapsulated 
-(quarantined!) in iter.c. It's easily replaced.
-
 ============================================================================
 DESIGN
 ============================================================================
@@ -250,7 +284,7 @@ This software began as a reimplementation of an existing pipeline.
 The requirement for compatibility with the prototype drove much
 of its design.
 
-The original program was motivated by one goal: speed...specifically, 
+The original program was motivated by one goal: speed. ..specifically, 
 fast calculation of the several standard statistics describe above
 on input with significant amounts of missing data. 
 
@@ -258,12 +292,12 @@ It was originally intended strictly for *exhaustive pairwise batch
 processing*.  Everything that deviates from this, e.g. row subselection, is 
 an afterthought/add-on.
 
-The goal of speed is approached in three ways:
+The goal of speed is approached in two ways:
 
-	1. Elimination of as much runtime redundancy as possible (preprocessing)
-	2. No memory allocation within loops; all memory is allocated before iteration commences.
-	3. Implementation in a compiled language
+	1. No memory allocation within loops; all memory is allocated before iteration commences.
+	2. Implementation in a compiled language
 
+Speed is no longer the *primary* driver of design. 
 
 ----------------------------------------------------------------------------
 Degeneracy handling
@@ -274,8 +308,7 @@ Two types of degeneracies occur:
 		a) categorical data with < 2 categories
 		b) numerical data that is constant
 	2) those that only emerge in the covariate pair because missing
-		data in one feature forces exclusion of values in the other
+	   data in one feature forces exclusion of values in the other
 
-The preprocessor detects univariate degeneracies.
-Pairwise detects covariate degeneracies and halts all computations.
+Univariate degeneracies are detected and flagged by the input parser (libmtm).
 
