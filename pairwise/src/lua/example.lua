@@ -1,13 +1,19 @@
 
--- This is an example of how an "all pairs" run could be achieved with
--- Lua script.
--- The pairwise executable automatically looks for a coroutine named 
--- "pair_generator" in any Lua script, so by so naming the coroutine
--- you don't need to specify a different function name.
+-- This file contains working examples of Lua coroutines for specifying
+-- feature pairs.
+-- The executable passes the count of features (rows) to Lua coroutines
+-- as the sole argument. Coroutines are free to use or ignore the value.
 
--- The 'pairwise' executable looks for a function named pair_generator
--- by default, but you can tell it to look for a different function
--- with the --coroutine/-c option.
+-- By default the executable looks for a function named pair_generator,
+-- but you can tell it to look for a different function with the 
+-- --coroutine/-c option.
+
+-- Be aware that the executable expects 0-based offsets; the first row
+-- in the matris is row 0. However, Lua uses 1-based indexing; the first
+-- item in a Lua array is array[1].
+
+-- This coroutine is an implementation of the exhaustive "all pairs"
+-- case. 
 
 function pair_generator( matrix_row_count )
 	for i = 0,(matrix_row_count-1) do

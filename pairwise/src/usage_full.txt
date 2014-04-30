@@ -72,18 +72,23 @@ Input matrix options:
 	label is treated as the feature's statistical class identifier:
 		  B: boolean
 		C|F: categorical (factor)
-		  O: ordinal (integral data)
+		D|O: ordinal (integral data)
 		  N: numeric (continuous, floating point data)
+	The second character MUST be punctuation.
 
-	If the argument of --type-parser is the special string "%s" feature's
+	If the argument of --type-parser is the special string "%s" features'
 	statistical classes are inferred from the input matrix' data using 
 	the following rules:
-		symbolic (strings) or integral data => boolean
-		symbolic (strings) or integral data => categorical
-		                      integral data => ordinal
-		                     floating-point => continuuos
-		(The presence of '.' or exponential notation is sufficient to
-		 imply a floating-point field.)
+	  1. If data is symbolic (strings) or integral and the cardinality 
+	     of the set of all values (in a feature) is 2, the feature is 
+	     treated as boolean data.
+	  2. Symbolic or integral data with cardinality <= 32 is treated
+	     as categorical.
+	  3. Integral data with cardinality > 32 is treated as ordinal(*).
+	  4. Presence of any floating-point syntax (a decimal point or
+	     exponential notation) implies continuous data.
+	  (*) Currently, no statistical methods specific to ordinal data
+	      are implemented.
 
   --na-regex | -N  [ "%s" ]
 
