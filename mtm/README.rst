@@ -39,10 +39,11 @@ MATRIX FORMAT in exhaustive (and exhausting) detail
 ============================================================================
 
 Every line of the input file is one of four types:
+
 	1. column names
 	2. empty (formally consisting of just the line terminator)
 	3. a comment line if the *first character* is the comment 
-		prefix (# by default, see below)
+	   prefix (# by default, see below)
 	4. data
 
 Empty lines are permitted and silently ignored.
@@ -61,7 +62,7 @@ Every line of the input file (except blank lines and comments) must contain
 "Separated" means a token is assumed to exist either side of *every* 
 separator.  Separators are not *coalesced* the way some programs coalesce 
 whitespace; every separator is significant.
-An implication of this is that adjacent separators imply *empty fields* or 
+An implication of this is that **adjacent separators imply empty fields** or 
 missing data. 
 For example a line consisting only of three tabs ("\\t\\t\\t\\n") will be
 interpreted as four empty fields.
@@ -79,7 +80,7 @@ Missing Data
 
 Missing data is represented by a distinguished marker symbol specified to 
 the mtm_parse API as a regular expression. The default is /[Nn][Aa][Nn]?/.
-Obviously this marker must be entirely distinct from all valid data.
+Obviously, this marker should be entirely distinct from all valid data.
 
 Empty fields are an alternative and permissable way to represent missing
 data. 
@@ -96,11 +97,11 @@ Data
 ----------------------------------------------------------------------------
 
 The matrix can include floating-point, integer, and symbolic (string) data.
-Integer data can be represented in any standard base (octal, decimal, 
-or hexadecimal) following standard conventions.
+Integer data can be represented in octal, decimal, or hexadecimal following 
+standard conventions.
 
 Categorical data in the input can be represented as non-negative integers or 
-symbolically, but symbolic category names are implicitly mapped to integer 
+symbolically. Symbolic category names are implicitly mapped to integer 
 identifies in the resulting binary matrix and the category labels are
 discarded.
 
@@ -131,7 +132,7 @@ data which are often conflated:
 
 	 1. the (statistical) *intent* of a feature vector 
 	 2. the *syntactic* representation of its scalar values (in an input)
-	 3. the (C language, binary) encoding of those values in RAM at runtime
+	 3. the (C language, binary) encoding of those values (in RAM at runtime)
 
 Considering...
 
@@ -242,6 +243,10 @@ C or F   categorical (factor)
 D or O   ordinal
 N        continuous
 ======== ====================
+
+The first *two* characters must match the regular expression 
+/[BCDFNO][:punct:]/, otherwise "unknown" is returned.
+
 
 ========================================================================
 Inferring class from syntax
