@@ -19,6 +19,20 @@ function pair_generator( N )
 	-- Just "fall off the end"; no need to "return" anything else.
 end
 
+-- Lua has special syntax for iterating arrays similar to the items(),
+-- keys() and values() methods on Python's dict type.
+
+function cross_product( N )
+	local L = {3,5,7,11}
+	local R = {2,4,6,8}
+	for i,l in ipairs(L) do
+		for j,r in ipairs(R) do
+			coroutine.yield( l, r )
+		end
+	end
+end
+
+
 function one_versus_all()
 	fixed = 3
 	for i = 0,(feature_count-1) do
