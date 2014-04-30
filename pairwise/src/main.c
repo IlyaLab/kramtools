@@ -54,7 +54,8 @@
 #include "featpair.h"
 #include "stattest.h"
 #include "analysis.h"
-#include "format.h"
+#include "varfmt.h"
+#include "fixfmt.h"
 #include "limits.h"
 
 #ifdef HAVE_LUA
@@ -74,7 +75,10 @@ extern int mtm_sclass_by_prefix( const char *token );
  * Globals & statics
  */
 
-const char *MAGIC_SUFFIX = "-www";
+static const char *MAGIC_SUFFIX = "-www";
+static const char *MAGIC_STD  = "std";
+static const char *MAGIC_TCGA = "tcga";
+
 const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
 
 FILE *g_fp_output = NULL;
@@ -82,11 +86,7 @@ FILE *g_fp_cache = NULL;
 
 size_t g_COLUMNS = 0;
 
-void (*g_format)( 
-		const struct feature_pair *pair, 
-		const struct CovariateAnalysis *covan,
-		FILE *fp ) = format_tcga;
-
+static void (*_emit)( EMITTER_SIG ) = format_tcga;
 
 #define GLOBAL
 GLOBAL unsigned  arg_min_cell_count   = 5;
@@ -117,7 +117,7 @@ static const char *opt_coroutine       = NULL;
 static bool        opt_dry_run         = false;
 
 static double      opt_p_value         = 1.0;
-static const char *opt_format          = "TCGA";
+static const char *opt_format          = "tcga";
 
 static bool     opt_warnings_are_fatal = false;
 
@@ -241,7 +241,7 @@ static void _filter( ANALYSIS_FN_SIG ) {
 			&& 
 			( ( covan.status & opt_status_mask ) == 0 ) ) {
 
-			g_format( pair, &covan, g_fp_output );
+			_emit( pair, &covan, g_fp_output );
 
 		} else {
 			//_filtered[ g_summary.kind ] += 1;
@@ -291,10 +291,6 @@ static int _cmp_fdr_cache_records( const void *pvl, const void *pvr ) {
 
 
 /**
-  * Note that this method does NOT take a cache FILE* like fdr_postprocess
-  * ONLY because it must follow a prototype that makes it interchangeable
-  * with the _emit static in main. 
-  * TODO: Revisit this.
   */
 static void _fdr_cache( ANALYSIS_FN_SIG ) {
 
@@ -342,7 +338,7 @@ static void fdr_postprocess( FILE *cache, double Q ) {
 		memset( &covan, 0, sizeof(covan) );
 		covan_exec( pair, &covan );
 */
-		//g_format( prec->a, prec->b, status );
+		//_emit( pair, &covan, g_fp_output );
 
 		if( g_sigint_received ) {
 			time_t now = time(NULL);
@@ -419,7 +415,7 @@ static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 
 	covan_exec( &pair, &covan );
 
-	g_format( &pair, &covan, g_fp_output );
+	_emit( &pair, &covan, g_fp_output );
 
 	return 0;
 }
@@ -665,6 +661,8 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_status_mask,
 			opt_p_value,
 			opt_format,
+			MAGIC_STD,
+			MAGIC_TCGA,
 			_YN(opt_warnings_are_fatal),
 			opt_verbosity,
 			MAGIC_SUFFIX,
@@ -850,12 +848,22 @@ int main( int argc, char *argv[] ) {
 			}
 			break;
 
-		case 'f': // format
-			if( strncmp("std",optarg, 3 ) == 0 )
-				g_format = format_standard;
+		case 'J': // JSON format
+		case 'f': // tabular format
+			// Check for magic-value strings first
+			if( strcmp( MAGIC_STD, optarg ) == 0 )
+				_emit = format_standard;
 			else
-			if( strncmp("short",optarg, 5 ) == 0 )
-				g_format = format_abbreviated;
+			if( strcmp( MAGIC_TCGA, optarg ) == 0 )
+				_emit = format_tcga;
+			else {
+				const char *specifier
+					= emit_config( optarg, c=='J' ? FORMAT_JSON : FORMAT_TABULAR );
+				if( specifier ) {
+					errx( -1, "invalid specifier \"%s\"", specifier ); 
+				}
+				_emit = emit_exec;
+			}
 			break;
 
 		case 'q':

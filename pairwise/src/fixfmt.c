@@ -1,4 +1,9 @@
 
+/**
+  * This module is deprecated and should be removed eventually.
+  * It's capabilities are subsumed by the varfmt.c module.
+  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,8 +16,8 @@
 #include "mtsclass.h"
 #include "stattest.h"
 #include "analysis.h"
-#include "format.h"
-
+#include "fixfmt.h"
+#include "varfmt.h" // even these legacy methods must follow the new EMITTER_SIG
 /**
   * "Sheila's format"
   * 1  -- feature A
@@ -63,9 +68,7 @@ static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
 }
 
 
-void format_tcga( 
-		const struct feature_pair *pair, 
-		const struct CovariateAnalysis *covan, FILE *fp ) {
+void format_tcga( EMITTER_SIG ) {
 
 	double NLOGP[3];
 	char rho[8];
@@ -126,9 +129,7 @@ void format_tcga(
   *       between used and unused parts of feature B
   * 11 -- log (of contingency table culling)
   */
-void format_standard( 
-		const struct feature_pair *pair, 
-		const struct CovariateAnalysis *covan, FILE *fp ) {
+void format_standard( EMITTER_SIG ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL ) {
 		fprintf( fp, "%s\t%s\t",  pair->l.name,   pair->r.name );
@@ -154,9 +155,7 @@ void format_standard(
 }
 
 
-void format_abbreviated( 
-		const struct feature_pair *pair, 
-		const struct CovariateAnalysis *covan, FILE *fp ) {
+void format_abbreviated( EMITTER_SIG ) {
 
 	if( pair->l.name != NULL && pair->r.name != NULL )
 		fprintf( fp, "%s\t%s\t", pair->l.name, pair->r.name );

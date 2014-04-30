@@ -1,5 +1,6 @@
 
 #include <ctype.h>
+#include <assert.h>
 #include "mtsclass.h"
 
 static const char *STAT_CLASSES[ 9 /* STAT_CLASS_ bitfield value */ ] = {
@@ -64,5 +65,21 @@ int mtm_sclass_by_prefix( const char *token ) {
 		}
 	}
 	return MTM_STATCLASS_UNKNOWN;
+}
+
+static const char *_DOMINANT_STATCLASS[5] = {
+	"unknown",		// 0 => 0
+	"boolean",		// 1 => 32-31 = 1
+	"categorical",	// 2 => 32-30 = 2
+	"ordinal",		// 4 => 32-29 = 3
+	"continuous"	// 8 => 32-28 = 4
+};
+
+/**
+  * This treats statistical classes as mutually exclusive
+  */
+const char *mtm_sclass_name( unsigned int bitflags ) {
+	assert( (0xFFFFFFF0 & bitflags ) == 0 );
+	return _DOMINANT_STATCLASS[ bitflags ? 32-__builtin_clz(bitflags) : 0 ]; 
 }
 

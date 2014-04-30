@@ -186,8 +186,8 @@ Output filters:
 
   --format | -f  [ "%s" ]
 
-	Either a magic value (e.g. the default) or...? 
-	Incompletely implemented.
+	Either one of the magic values ("%s" or "%s") or a format specifier.
+	See the README for a full description.
 
   --fdr | -q
 

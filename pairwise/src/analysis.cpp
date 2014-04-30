@@ -155,7 +155,18 @@ int covan_exec(
 	unsigned unused2 = 0;
 	unsigned count   = 0;
 
-	strcpy( covan->result.log, "-" ); // to insure column count consistency in tabular output
+	/**
+	  * Insure all string args are initialized to -something- so that 
+	  * emitters need be slowed by pervasive NULL checks...
+	  */
+	covan->result.name
+		= covan->waste[0].result.name
+		= covan->waste[1].result.name
+		= "?";
+	// TODO: Revisit this... 
+	strcpy( covan->waste[0].result.log, "-" );
+	strcpy( covan->waste[1].result.log, "-" );
+	strcpy( covan->result.log, "-" );
 
 	/**
 	  * Determine feature classes and check for univariate degeneracy.

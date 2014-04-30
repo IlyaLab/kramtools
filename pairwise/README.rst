@@ -26,8 +26,9 @@ This software has three high-level functions:
 	   tabular or (soon) JSON format subject to configurable filters.
 	   Output filters include the option of Benjamini-Hochberg FDR conrol.
 
-Every run of pairwise involves these function, but *many* options control 
-the exact behavior.
+Every run of pairwise involves these function, but the exact behavior
+is under the control of *many* options, some described herein some 
+described only in the online help.
 
 Input consists of textual matrices of tab-separated values in which
 rows represent features and columns represent samples. See the libmtm
@@ -92,6 +93,9 @@ guaranteed to be optimal. If after this "culling" step either of
 the table's dimensions exceeds 2, a Chi-Square test is performed. 
 Otherwise, if the table is 2x2, the Fisher exact test is performed.
 
+**Contingency table cleaning going to be revised/supplemented by univariate outlier
+detection and/or class balancing in the near future.**
+
 ^^^^
 
 ============================================================================
@@ -100,7 +104,8 @@ OUTPUT (FILTERING AND FORMATTING)
 
 The *content* and *format* of output are *independently* configured.
 Ouput is provided in one of two overarching formats: tabular and JSON_.
-The "micro" formatting of tabular output is also tweakable.
+The "local" formatting of certain fields is also specifiable as noted
+below.
 
 .. _JSON : http://json.org
 
@@ -108,62 +113,85 @@ The "micro" formatting of tabular output is also tweakable.
 Content filtering
 ----------------------------
 
-The following tables summarize the information available for every pair
-of features analyzed. The *content* of the output can be filtered by
-providing a format string that consists of the regular expressions listed
-below separated by *any kind* of whitespace.
+Every pair analysis produces 17 items of data, any or all of which
+can be reported. You can select items for reporting as well as
+specify the order by passing a "format specifier string" as the
+argument of the -f (or -J) option on the command line. See online
+help.
+
+A format specifier is essentially a whitespace separated series of descriptive
+identifiers or identifier *prefixes* as described in the tables below. 
+*Any type* and *any amount* of whitespace (space, newline, tab) can separate 
+each token, and tokens must not contain any whitespace.
+If prefixes are used, the prefix need only be enough to uniquely identify
+the intended identifier. Regular expression matches enforce this.
+
+Some data are associated with the "left" and "right" features (e.g. 
+feature names); others are associated with the covariate pair. Data
+with left/right association are also independently specified by 
+prefixing the identifier with '<' and/or '>'.
 
 =========================== ==================================
-Covariate information       Format regular expression
+Covariate information       Identifier regular expression
 =========================== ==================================
 sample count                c(ount)? [1]_
-statistic name              st(atistic)?
-test error                  e(rror)?[2]_
-sign of correlation         si(gn)?("[3]_")?
-statistic value             v(alue)?("[3]_")?
-p-value                     p(robability)?("[3]_")?
--log10(p-value)             P(robability)?("[3]_")?
-extra info                  e?x(tra)? [4]_
+statistic name              st(at)?
+statistic value             v(alue)?("[2]_")?
+test error                  e(rror)? [3]_
+sign of correlation         si(gn)?("[2]_")? [4]_ 
+p-value                     p(rob)?("[2]_")?
+-log10(p-value)             P(rob)?("[2]_")?
+extra info                  e?x(tra)? [5]_
 =========================== ==================================
 
-.. [1] Count of the number of *pairs* in which neither value is missing.
-.. [2] This is a hexadecimal value reporting the bit flags of the test.
-       See online help.
-.. [3] A printf-style format string valid for a floating-point value 
-       delimited by double quotes.
-.. [4] This is a semi-structures string consisting of any additional
+
+=========================== ================================
+Univariate information      Identifier regular expression 
+=========================== ================================
+feature name                [<>]{1,2}f(eature)?
+feature offset              [<>]{1,2}o(ffset)?
+feature statistical class   [<>]{1,2}cl(ass)?
+preprocessing description   [<>]{1,2}pre(proc)?
+count of unused values      [<>]{1,2}u(nused)?
+statistic name              [<>]{1,2}s(tat)?
+statistic value             [<>]{1,2}v(alue)? [2]_
+p-value                     [<>]{1,2}pro(b)? [2]_
+extra info                  [<>]{1,2}e?x(tra)?
+=========================== ================================
+
+.. [1] The number of covariate *pairs* analyzed. This is the number
+       of pairs in which *neither* value was missing.
+
+.. [2] A printf-style format string valid for a floating-point value 
+       delimited by double quotes. This must match the regular
+       expression: /%[-#0+]?([1-9][0-9]*)?(.[0-9]*)?[eEfFgG]"/.
+       This is a *restricted* version of the printf format
+       for floating-point values.
+
+.. [3] A 2-character hexadecimal value reporting the bit 
+       flags of the test. See online help.
+
+.. [4] Currently the Spearman rho. In the future it will be
+       +1.0 or -1.0 according to the sign of the correlation.
+       Correlation value is also reported as the statistic value
+       for continuous-continuous feature pairs.
+
+.. [5] A loosely structured string consisting of any additional
        information made available by the statistical test (e.g. number of
        ties in rank data, or number of empty cells in a contingency table).
 
-Each univariate feature is potentially subjected to a transformation
-(e.g. outlier culling) as well as "internal" statistical tests as
-described above. 
+For example, "<>f p%.3f" specifies printing of *both* feature names
+as well as the covariate p-value with 6 decimal places. Given a 
+single 'p' as the argument to the --format option causes pairwise
+to emit nothing but the covariate p-value.
 
-=========================== ================================
-Univariate information      Format regular expression 
-=========================== ================================
-feature names               [<&>]f(eature)? [1]_
-feature offsets             [<&>]o(ffset)? [1]_
-feature statistical classes [<&>]cl(ass)? [1]_
-transformation              [<&>]t(ransform)?
-count of unused values      [<&>]u(nused)?
-statistic                   [<&>]s(tatistic)?
-statistic value             [<&>]v(alue)?
-p-value                     [<&>]p(robability)?
-extra info                  [<&>]e?x(tra)?
-=========================== ================================
-
-The left or right feature's univariate information is specified with "<"
-and ">", respectively. "Left" and "right" corresponds to the ordering
-of the covariate
-"&" requests reporting of the information for both univariate features
-as adjacent pairs.
+**Some fields are not yet implemented, and will report as much if used.**
 
 ----------------------------
 False discovery rate control
 ----------------------------
 
-This is implemented but untested.
+Coming soon...
 
 ^^^^
 

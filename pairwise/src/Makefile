@@ -31,7 +31,8 @@ SOURCES=main.c \
 	mix.cpp \
 	num.cpp \
 	featpair.c\
-	format.c
+	fixfmt.c \
+	varfmt.c
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
@@ -105,6 +106,9 @@ ut_cat : cat.cpp $(addprefix $(SRCLIB)/,fisher.c min2.c)
 
 ut_num : num.cpp fp.c $(addprefix $(SRCLIB)/,rank.c)
 	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
+
+ut_varfmt : varfmt.c
+	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNIT_TEST_VARFMT $^ -lm
 
 ############################################################################
 # General targets
