@@ -153,7 +153,7 @@ feature offset              [<>]{1,2}o(ffset)?
 feature statistical class   [<>]{1,2}cl(ass)?
 preprocessing description   [<>]{1,2}pre(proc)?
 count of unused values      [<>]{1,2}u(nused)?
-statistic name              [<>]{1,2}s(tat)?
+statistic name              [<>]{1,2}s(tat)? [6]_
 statistic value             [<>]{1,2}v(alue)?([2]_)?
 p-value                     [<>]{1,2}pro(b)?([2]_)?
 extra info                  [<>]{1,2}e?x(tra)?
@@ -184,6 +184,9 @@ extra info                  [<>]{1,2}e?x(tra)?
 .. [5] A loosely structured string consisting of any additional
        information made available by the statistical test (e.g. number of
        ties in rank data, or number of empty cells in a contingency table).
+
+.. [6] This (and the value and p-value) refer to the *within* feature
+       statistical test for bias resulting from missing values.
 
 For example, "<>f p%.5f" specifies printing of *both* feature names
 as well as the covariate p-value with 5 decimal places. A 
