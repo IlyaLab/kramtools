@@ -26,8 +26,8 @@ This software has three high-level functions:
 	   tabular or (soon) JSON format subject to configurable filters.
 	   Output filters include the option of Benjamini-Hochberg FDR conrol.
 
-Every run of pairwise involves these function, but the exact behavior
-is under the control of *many* options, some described herein some 
+Every run of pairwise involves these functions, but the exact behavior
+is under the control of *many* options, some described herein and some 
 described only in the online help.
 
 Input consists of textual matrices of tab-separated values in which
@@ -169,7 +169,11 @@ extra info                  [<>]{1,2}e?x(tra)?
        This is a *restricted* version of the printf format
        for floating-point values.
 
-.. [3] A 2-character hexadecimal value reporting the bit 
+.. [3] **This is not "error" in the statistical sense.** Rather, it's
+       an indication of whether or not the computations completed
+       without producing NaN. This is primarily for detecting degeneracies
+       in the univariate and/or covariate data.
+       A 2-character hexadecimal value reporting the bit 
        flags of the test. See online help.
 
 .. [4] Currently the Spearman rho. In the future it will be
