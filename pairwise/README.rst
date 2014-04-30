@@ -136,11 +136,11 @@ Covariate information       Identifier regular expression
 =========================== ==================================
 sample count                c(ount)? [1]_
 statistic name              st(at)?
-statistic value             v(alue)?("[2]_")?
+statistic value             v(alue)?([2]_)?
 test error                  e(rror)? [3]_
-sign of correlation         si(gn)?("[2]_")? [4]_ 
-p-value                     p(rob)?("[2]_")?
--log10(p-value)             P(rob)?("[2]_")?
+sign of correlation         si(gn)?([2]_)? [4]_ 
+p-value                     p(rob)?([2]_)?
+-log10(p-value)             P(rob)?([2]_)?
 extra info                  e?x(tra)? [5]_
 =========================== ==================================
 
@@ -154,8 +154,8 @@ feature statistical class   [<>]{1,2}cl(ass)?
 preprocessing description   [<>]{1,2}pre(proc)?
 count of unused values      [<>]{1,2}u(nused)?
 statistic name              [<>]{1,2}s(tat)?
-statistic value             [<>]{1,2}v(alue)? [2]_
-p-value                     [<>]{1,2}pro(b)? [2]_
+statistic value             [<>]{1,2}v(alue)?([2]_)?
+p-value                     [<>]{1,2}pro(b)?([2]_)?
 extra info                  [<>]{1,2}e?x(tra)?
 =========================== ================================
 
@@ -163,8 +163,9 @@ extra info                  [<>]{1,2}e?x(tra)?
        of pairs in which *neither* value was missing.
 
 .. [2] A printf-style format string valid for a floating-point value 
-       delimited by double quotes. This must match the regular
-       expression: /%[-#0+]?([1-9][0-9]*)?(.[0-9]*)?[eEfFgG]"/.
+       delimited by double quotes. The \[2\] in the *interior* of the 
+       parenthesis above must be replace by a string matching the
+       regular expression: /%[-#0+]?([1-9][0-9]*)?(.[0-9]*)?[eEfFgG]/.
        This is a *restricted* version of the printf format
        for floating-point values.
 
@@ -180,10 +181,11 @@ extra info                  [<>]{1,2}e?x(tra)?
        information made available by the statistical test (e.g. number of
        ties in rank data, or number of empty cells in a contingency table).
 
-For example, "<>f p%.3f" specifies printing of *both* feature names
-as well as the covariate p-value with 6 decimal places. Given a 
+For example, "<>f p%.5f" specifies printing of *both* feature names
+as well as the covariate p-value with 5 decimal places. A 
 single 'p' as the argument to the --format option causes pairwise
-to emit nothing but the covariate p-value.
+to emit nothing but the covariate p-value in a default floating-point
+format (exponential).
 
 **Some fields are not yet implemented, and will report as much if used.**
 
