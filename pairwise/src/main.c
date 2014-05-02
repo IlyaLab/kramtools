@@ -1028,19 +1028,22 @@ int main( int argc, char *argv[] ) {
 	  * ... <filename1>
 	  */
 
+	static const char*NAME_STDIN  = "stdin";
+	static const char*NAME_STDOUT = "stdout";
+
 	switch( argc - optind ) {
 
 	case 0: // input MUST be stdin, output stdout
-		i_file = "stdin";
-		o_file = "stdout";
+		i_file = NAME_STDIN;
+		o_file = NAME_STDOUT;
 		break;
 
 	case 1:
 		if( access( argv[ optind ], R_OK ) == 0 ) {
 			i_file = argv[ optind++ ];
-			o_file = "stdout";
+			o_file = NAME_STDOUT;
 		} else {
-			i_file = "stdin";
+			i_file = NAME_STDIN;
 			o_file = argv[ optind++ ];
 		}
 		break;
@@ -1051,7 +1054,11 @@ int main( int argc, char *argv[] ) {
 		break;
 
 	default:
-		errx( -1, "error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
+		fprintf( stderr,
+			"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
+		while( optind < argc )
+			fprintf( stderr, "\t\"%s\"\n", argv[optind++] );
+		exit( EXIT_FAILURE );
 	}
 
 	if( opt_pairlist_source != NULL 
@@ -1116,7 +1123,7 @@ int main( int argc, char *argv[] ) {
 	  * Load the input matrix.
 	  */
 
-	fp = strcmp( i_file, "stdin" )
+	fp = strcmp( i_file, NAME_STDIN )
 		? fopen( i_file, "r" )
 		: stdin;
 	if( fp ) {
@@ -1152,10 +1159,18 @@ int main( int argc, char *argv[] ) {
 		}
 	}
 
+	/**
+	  * Choose and open, if necessary, an output stream.
+	  */
+
 	g_fp_output 
-		= strcmp( i_file, "stdout" ) == 0 
-		? fopen( o_file, "w" ) 
-		: stdout;
+		= (strcmp( o_file, NAME_STDOUT ) == 0 )
+		? stdout
+		: fopen( o_file, "w" );
+
+	if( NULL == g_fp_output ) {
+		err( -1, "opening output file \"%s\"", o_file );
+	}
 
 	if( covan_init( _matrix.columns ) ) {
 		err( -1, "error: covan_init(%d)\n", _matrix.columns );
@@ -1182,7 +1197,7 @@ int main( int argc, char *argv[] ) {
 	if( opt_pairlist_source ) {
 
 		FILE *fp
-			= strcmp(opt_pairlist_source,"stdin")
+			= strcmp(opt_pairlist_source,NAME_STDIN)
 			? fopen( opt_pairlist_source, "r" )
 			: stdin;
 		
