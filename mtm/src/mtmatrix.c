@@ -60,14 +60,16 @@ void mtm_resolve_rownames( struct mtm_matrix *m, signed long base ) {
 }
 
 
-void mtm_resort_rowmap( struct mtm_matrix *m, bool lexigraphic_order ) {
+int mtm_resort_rowmap( struct mtm_matrix *m, bool lexigraphic_order ) {
 	if( m->row_map ) {
 		if( m->lexigraphic_order != lexigraphic_order ) {
 			qsort( m->row_map, m->rows, sizeof(struct mtm_row_id),
 				lexigraphic_order ? _cmp_row_names : _cmp_row_rowoffs );
 			m->lexigraphic_order = lexigraphic_order;
 		}
+		return 0;
 	}
+	return MTM_E_NO_ROW_LABELS;
 }
 
 
