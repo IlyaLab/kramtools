@@ -110,7 +110,7 @@ static void _dump( struct mtm_matrix *m,
 
 static bool opt_expect_rownames = true;
 static bool opt_expect_header   = true;
-static const char *opt_missing_marker  = "^[Nn][Aa][Nn]?$";
+static const char *opt_missing_marker = NULL;
 static int  opt_max_categories  = 32;
 static int (*opt_interpret_type)( const char *token ) = mtm_sclass_by_prefix;
 
@@ -185,6 +185,7 @@ int main( int argc, char *argv[] ) {
 	const char *FNAME = NULL;
 	struct mtm_matrix m;
 
+	opt_missing_marker = mtm_default_NA_regex;
 	memset( opt_binary_file, 0, sizeof(opt_binary_file) );
 	memset( &m, 0, sizeof(struct mtm_matrix) );
 

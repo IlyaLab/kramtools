@@ -106,7 +106,7 @@ static const char *opt_script          = NULL;
 static bool        opt_header          = true;
 static bool        opt_row_labels      = true;
 static const char *opt_type_parser     = NULL;
-static const char *opt_na_regex        = "[Nn][Aa][Nn]?";
+static const char *opt_na_regex        = NULL; // initialized in main
 
 static       char *opt_single_pair     = NULL; // non-const because it's split
 
@@ -690,6 +690,7 @@ int main( int argc, char *argv[] ) {
 	  * Mandatory initializations.
 	  */
 
+	opt_na_regex = mtm_default_NA_regex;
 	//memset( _filtered, 0, sizeof(_filtered) );
 	memset( &_matrix,  0, sizeof(struct mtm_matrix) );
 

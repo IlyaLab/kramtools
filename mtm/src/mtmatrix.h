@@ -260,6 +260,8 @@ int  mtm_fetch_by_name( struct mtm_matrix *m, struct mtm_feature *f );
 int  mtm_fetch_by_offset( struct mtm_matrix *m, struct mtm_feature *f );
 const char *mtm_sclass_name( unsigned int );
 
+extern const char *mtm_default_NA_regex;
+
 #ifdef __cplusplus
 }
 #endif

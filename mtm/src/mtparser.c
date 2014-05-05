@@ -43,7 +43,7 @@ const char *MTMLIB = "libmtm";
   * Input parameters
   */
 
-static const char *DEFAULT_MISSING_DATA_REGEX = "[Nn][Aa][Nn]?";
+const char *mtm_default_NA_regex = "^[Nn][Aa][Nn]?$";
 
 #define C_STR_TERMINATOR ('\0')
 #define LINE_DELIMITER   ('\n')
@@ -502,7 +502,7 @@ int mtm_parse( FILE *input,
 		SEPARATOR = getenv(ENVVAR_SEPARATOR)[0];
 
 	econd = toktype_init( 
-		missing_data_regex ? missing_data_regex : DEFAULT_MISSING_DATA_REGEX );
+		missing_data_regex ? missing_data_regex : mtm_default_NA_regex );
 	if( econd ) {
 		return MTM_E_INIT_REGEX;
 	}
@@ -727,7 +727,7 @@ int mtm_parse( FILE *input,
 		m->columns = s.data_column_count;
 
 		if( m->row_names != NULL && m->row_map != NULL )
-			mtm_resolve_rownames( m, m->row_names );
+			mtm_resolve_rownames( m, (signed long)m->row_names );
 
 		// Rows' order is currently the same as in the input. This might be
 		// lexigraphically sorted order, but we don't *know* that, so...
