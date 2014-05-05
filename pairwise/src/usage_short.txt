@@ -1,5 +1,5 @@
 USAGE_ABRIDGED
-%s version: %d.%d.%d %s
+%s version: %d.%d.%d%s %s
 Usage...
 %s [ options ] [ <input matrix> ] [ <output_file> ]
 

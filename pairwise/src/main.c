@@ -647,7 +647,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 
 	if( exhaustive )
 		fprintf( fp, USAGE_UNABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX, debug_state,
+			exename, _VER_MAJ, _VER_MIN, _VER_FIX, _VER_TAG, debug_state,
 			exename,
 			exename,
 			TYPE_PARSER_INFER,
@@ -671,7 +671,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			AUTHOR_EMAIL );
 	else
 		fprintf( fp, USAGE_ABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX, debug_state,
+			exename, _VER_MAJ, _VER_MIN, _VER_FIX, _VER_TAG, debug_state,
 			exename,
 			opt_p_value,
 		  	AUTHOR_EMAIL );
