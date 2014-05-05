@@ -1,11 +1,14 @@
 
 /**
-  * This file serves 3 primary functions:
-  * 1) loading and parsing the input matrix (done by libmtm.a) 
-  * 2) iterating through a sequence of feature pairs (specified
-  *    in a variety of ways) and for each pair calling a high-level 
-  *    analysis method that selects an appropriate covariate analysis.
-  * 3) routing the results to either
+  * THE BIG PICTURE
+  *
+  * This file:
+  * 1) (libmtm.a, actually) loads and parses the input matrix
+  * 2) iterates through a sequence of feature pairs specified in one of
+  *    a variety of ways
+  * 3) for each pair it calls a high-level analysis method that selects
+  *    and executes an appropriate covariate analysis.
+  * 4) routes the analysis results to either
   *    a) immediate output using a specified formatter or
   *    b) a cache to be post-processed (for FDR control) and subsequently
   *       output.
@@ -76,15 +79,13 @@ extern int mtm_sclass_by_prefix( const char *token );
  */
 
 static const char *MAGIC_SUFFIX = "-www";
-static const char *MAGIC_STD  = "std";
-static const char *MAGIC_TCGA = "tcga";
+static const char *MAGIC_FORMAT_ID_STD  = "std";
+static const char *MAGIC_FORMAT_ID_TCGA = "tcga";
 
 const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
 
-FILE *g_fp_output = NULL;
-FILE *g_fp_cache = NULL;
-
-size_t g_COLUMNS = 0;
+static FILE *_fp_output = NULL;
+static FILE *_fp_cache  = NULL;
 
 static void (*_emit)( EMITTER_SIG ) = format_tcga;
 
@@ -92,7 +93,7 @@ static void (*_emit)( EMITTER_SIG ) = format_tcga;
 GLOBAL unsigned  arg_min_cell_count   = 5;
 GLOBAL unsigned  arg_min_mixb_count   = 1;
 GLOBAL unsigned  arg_min_sample_count = 2; // < 2 NEVER makes sense
-GLOBAL bool g_sigint_received          = false; // fdr.d needs access
+GLOBAL bool g_sigint_received         = false; // fdr.d needs access
 #undef  GLOBAL
 
 static const char *TYPE_PARSER_INFER   = "auto";
@@ -129,6 +130,15 @@ static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
 static unsigned opt_status_mask        = COVAN_E_MASK;
 
+/**
+  * This is used simply to preclude bloating the FDR cache with results
+  * that can't possibly be relevant to the final BH-calculated p-value
+  * threshold for FDR.
+  * I'm setting this high for safety since it's just an optimization, but
+  * it could probably be MUCH smaller.
+  */
+static double opt_fdr_cache_threshold  = 0.5;
+
 #ifdef _DEBUG
 /**
   * Emit all results INCLUDING those with degeneracy.
@@ -163,9 +173,18 @@ static int _load_script( const char *source, lua_State *state ) {
 
 
 /**
-  * Records the number of each test type that are filtered.
+  * Records the number of pairwise tests COMPLETED WITHOUT ERROR
+  * but not emitted (because they didn't pass the p-value threshold
+  * for emission.
+  *
+  * This is NOT used when FDR control is active in pairwise; rather it is
+  * for use in FDR control calculations *outside* the context of pairwise.
+  *
+  * Note that the total number of tests *attempted* is *not* separately
+  * counted because it is assumed that that is known to the caller who
+  * set up the run, after all.
   */
-// TODO: static unsigned _filtered[ CovarTypeCount ];
+static unsigned _filtered = 0;
 
 /**
   * The binary matrix is accessed at runtime through this variable.
@@ -229,7 +248,7 @@ static void _filter( ANALYSIS_FN_SIG ) {
 	// One last thing to check before filtering to insure corner cases
 	// don't fall through the following conditionals....
 
-	if( ! isfinite( covan.result.probability ) ) { 
+	if( ! isfinite( covan.result.probability ) ) {
 		covan.result.probability = 1.0;
 		covan.status             = COVAN_E_MATH;
 	}
@@ -237,14 +256,12 @@ static void _filter( ANALYSIS_FN_SIG ) {
 #ifdef _DEBUG
 	if( ! dbg_silent ) {
 #endif
-		if( ( covan.result.probability <= opt_p_value ) 
-			&& 
-			( ( covan.status & opt_status_mask ) == 0 ) ) {
 
-			_emit( pair, &covan, g_fp_output );
-
-		} else {
-			//_filtered[ g_summary.kind ] += 1;
+		if( ( covan.status & opt_status_mask ) == 0 ) {
+			if( covan.result.probability <= opt_p_value )
+				_emit( pair, &covan, _fp_output );
+			else
+				_filtered += 1;
 		}
 
 #ifdef _DEBUG
@@ -261,14 +278,28 @@ static void _error_handler(const char * reason,
                         int gsl_errno) {
 	fprintf( stderr,
 		"#GSL error(%d): %s\n"
-		"#GSL error  at: %s:%d\n", 
+		"#GSL error  at: %s:%d\n",
 		gsl_errno, reason, file, line );
 }
 
 
 /***************************************************************************
   * FDR processing
-  * This 
+  * This currently involves some redundant computation in the interest of
+  * simplicity. Since the whole point of FDR is to limit output, though, the
+  * actual runtime cost should be bearabe. Specifically...
+  *
+  * 1. Two passes are made over the (selected) pairs.
+  * 2. The offsets and p-value of the result of the first pass are cached
+  *    in a tmp file.
+  * 3. After completion, the p-value appropriate for the given q-value is
+  *    determined and results from the 1st pass with sufficiently low
+  *    p-values are recalculated and, this time, fully emitted.
+  *
+  * TODO: Optimization: Pairs with very high p-values (i.e. *clearly*
+  * uninteresting pairs) can be omitted from the cache even in the first
+  * pass and merely counted as tests since their recomputation will *almost*
+  * certainly, depending ultimately on the threshold, not be required.
   */
 
 struct FDRCacheRecord {
@@ -290,63 +321,106 @@ static int _cmp_fdr_cache_records( const void *pvl, const void *pvr ) {
 }
 
 
+static int _fdr_uncached_count = 0;
+
+
 /**
+  * Analyze the pair and cache just the offsets and p-value of the result
+  * for possible recalculation during post-processing--after FDR control
+  * has calculated an appropriate p-value threshold from the q-value.
   */
 static void _fdr_cache( ANALYSIS_FN_SIG ) {
 
 	struct CovariateAnalysis covan;
 	memset( &covan, 0, sizeof(covan) );
+
 	covan_exec( pair, &covan );
 
-	if( covan.status == 0 && covan.result.probability <= opt_p_value ) {
-		struct FDRCacheRecord rec = {
-			.p = covan.result.probability,
-			.a = pair->l.offset,
-			.b = pair->r.offset
-		};
-		fwrite( &rec, sizeof(rec), 1, g_fp_cache );
+	// Failed tests (for reasons of one kind of degeneracy or another)
+	// do not contribute to the calculation of the p-value threshold.
+
+	if( covan.status == 0
+		&& isfinite( covan.result.probability ) ) {
+
+		// ...then, whatever the p-value, the test was at least
+		// successfully *executed*.
+
+		if( covan.result.probability <= opt_fdr_cache_threshold ) {
+			struct FDRCacheRecord rec = {
+				.p = covan.result.probability,
+				.a = pair->l.offset,
+				.b = pair->r.offset
+			};
+			fwrite( &rec, sizeof(rec), 1, _fp_cache );
+		} else
+			_fdr_uncached_count += 1;
 	}
 }
 
 
-static void fdr_postprocess( FILE *cache, double Q ) {
+/**
+  * This implements the Benjamini-Hochberg algorithm as described on
+  * page 49 of "Large-Scale Inference", Bradley Efron, Cambridge.
+  * "...for a fixed value of q in (0,1), let i_max be the largest
+  *  index for which
+  *                     p_(i) <= (i/N)q
+  *
+  *  ...and reject H_{0(i)}, the null hypothesis corresponding to
+  *  p_(i), if
+  *                         i <= i_max,
+  *
+  *  ...accepting H_{0(i)} otherwise."
+  *
+  * [...And i is 1-based in this notation!]
+  */
+static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 
-	const long size
-		= ftell( cache );
-	const unsigned COUNT
-		= size / sizeof(struct FDRCacheRecord);
+	const unsigned CACHED_COUNT
+		= ftell( cache ) / sizeof(struct FDRCacheRecord);
+	const unsigned TESTED_COUNT
+		= CACHED_COUNT
+		+ _fdr_uncached_count;
+
 	struct FDRCacheRecord *prec, *sortbuf
-		= calloc( size, sizeof(struct FDRCacheRecord) );
+		= calloc( CACHED_COUNT, sizeof(struct FDRCacheRecord) );
+
 	const double RATIO
-		= Q/COUNT;
-	int n = 0;
+		= Q/TESTED_COUNT;
+	int i = 0;
+
+	// Load and sort the cached test records...
 
 	rewind( cache );
-		fread( sortbuf, sizeof(struct FDRCacheRecord), COUNT, cache );
-	rewind( cache );
+	fread( sortbuf, sizeof(struct FDRCacheRecord), CACHED_COUNT, cache );
+	qsort( sortbuf, CACHED_COUNT, sizeof(struct FDRCacheRecord), _cmp_fdr_cache_records );
 
-	qsort( sortbuf, COUNT, sizeof(struct FDRCacheRecord), _cmp_fdr_cache_records );
+	// ...and recompute the full statistics of all earlier tests that
+	// pass the now-established p-value threshold.
 
 	prec = sortbuf;
-	while( prec->p <= (n+1)*RATIO ) {
-
-		// TODO:const unsigned *pa = g_matrix_body + g_COLUMNS*prec->a;
-		// TODO:const unsigned *pb = g_matrix_body + g_COLUMNS*prec->b;
-
-/*
+	while( prec->p <= (i+1)*RATIO ) {
+	
+		struct feature_pair fpair;
 		struct CovariateAnalysis covan;
 		memset( &covan, 0, sizeof(covan) );
-		covan_exec( pair, &covan );
-*/
-		//_emit( pair, &covan, g_fp_output );
+
+		fetch_by_offset( &_matrix, &fpair );
+
+		covan_exec( &fpair, &covan );
+
+		// At this point emission is unconditional; FDR control has
+		// already filtered all that will be filtered...
+
+		_emit( &fpair, &covan, final_output );
 
 		if( g_sigint_received ) {
 			time_t now = time(NULL);
 			fprintf( stderr, "# FDR postprocess interrupted @ %s", ctime(&now) );
 			break;
 		}
+
 		prec += 1;
-		n    += 1;
+		i    += 1;
 	}
 }
 
@@ -393,7 +467,7 @@ static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 		pair.l.offset = atoi( left );
 		mtm_resort_rowmap( &_matrix, MTM_RESORT_BYROWOFFSET );
 		econd = mtm_fetch_by_offset( &_matrix, &(pair.l) );
-	} else 
+	} else
 	if( HAVE_ROW_LABELS ) {
 		pair.l.name   = left;
 		mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
@@ -415,7 +489,7 @@ static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 
 	covan_exec( &pair, &covan );
 
-	_emit( &pair, &covan, g_fp_output );
+	_emit( &pair, &covan, _fp_output );
 
 	return 0;
 }
@@ -439,11 +513,11 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 		// Parse the two names out of the line.
 
 		right = strchr( left, '\t' );
-		if( right ) 
+		if( right )
 			*right++ = '\0';
 		else {
 			fprintf( stderr, "error: no tab found in '%s'.\n", left );
-			if( opt_warnings_are_fatal ) 
+			if( opt_warnings_are_fatal )
 				break;
 			else
 				continue; // no reason we -can't- continue
@@ -460,7 +534,7 @@ static int /*ANAM*/ _analyze_named_pair_list( FILE *fp ) {
 				"\t...not found.\n",
 				fpair.l.name,
 				fpair.r.name );
-			if( opt_warnings_are_fatal ) 
+			if( opt_warnings_are_fatal )
 				break;
 			else
 				continue; // no reason we -can't- continue
@@ -494,7 +568,7 @@ static int /*ANUM*/ _analyze_pair_list( FILE *fp ) {
 				fpair.r.offset,
 				_matrix.rows,
 				ftell( fp ) );
-			if( opt_warnings_are_fatal ) 
+			if( opt_warnings_are_fatal )
 				break;
 			else	
 				continue; // no reason we -can't- continue
@@ -532,7 +606,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 					fpair.l.offset,
 					fpair.r.offset,
 					_matrix.rows );
-				if( opt_warnings_are_fatal ) 
+				if( opt_warnings_are_fatal )
 					break;
 				else	
 					continue; // no reason we -can't- continue
@@ -560,17 +634,17 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 #endif
 
 /**
-  * This clause serves the primary use case motivating this 
+  * This clause serves the primary use case motivating this
   * application: FAST, EXHAUSTIVE (n-choose-2) pairwise analysis.
   * As a result, the coding of this iteration schema is quite
   * different from the others. In particular:
   * 1. Since I -know- the order of feature pair evaluation I can
   *    preclude lots of useless work by entirely skipping outer loop
-  * features with univariate degeneracy. This isn't feasible in 
+  * features with univariate degeneracy. This isn't feasible in
   * the other iteration sc
-  * I'm dispensing with "pretty" and doing the 
+  * I'm dispensing with "pretty" and doing the
   * pointer arithmetic locally to eek out maximum possible speed.
-  * In particular, I set up lots of ptrs below to obviate 
+  * In particular, I set up lots of ptrs below to obviate
   * redundant pointer arithmetic--only do fixed additions.
   */
 static int /*AALL*/ _analyze_all_pairs() {
@@ -584,8 +658,8 @@ static int /*AALL*/ _analyze_all_pairs() {
 	fpair.l.data = _matrix.data;
 	lrid         = _matrix.row_map; // may be NULL
 
-	for(fpair.l.offset = 0; 
-		fpair.l.offset < _matrix.rows; 
+	for(fpair.l.offset = 0;
+		fpair.l.offset < _matrix.rows;
 		fpair.l.offset++ ) {
 
 		fpair.l.name = lrid ? lrid->string : "";
@@ -594,8 +668,8 @@ static int /*AALL*/ _analyze_all_pairs() {
 		fpair.r.data = fpair.l.data + _matrix.columns;
 		rrid = lrid ? lrid + 1 : NULL;
 
-		for(fpair.r.offset = fpair.l.offset+1; 
-			fpair.r.offset < _matrix.rows; 
+		for(fpair.r.offset = fpair.l.offset+1;
+			fpair.r.offset < _matrix.rows;
 			fpair.r.offset++ ) {
 
 			fpair.r.name = rrid ? rrid->string : "";
@@ -661,8 +735,8 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_status_mask,
 			opt_p_value,
 			opt_format,
-			MAGIC_STD,
-			MAGIC_TCGA,
+			MAGIC_FORMAT_ID_STD,
+			MAGIC_FORMAT_ID_TCGA,
 			_YN(opt_warnings_are_fatal),
 			opt_verbosity,
 			MAGIC_SUFFIX,
@@ -691,7 +765,6 @@ int main( int argc, char *argv[] ) {
 	  */
 
 	opt_na_regex = mtm_default_NA_regex;
-	//memset( _filtered, 0, sizeof(_filtered) );
 	memset( &_matrix,  0, sizeof(struct mtm_matrix) );
 
 	/**
@@ -724,7 +797,7 @@ int main( int argc, char *argv[] ) {
 	/**
 	 * Running as a web service implies some changes to default arguments
 	 * ...and NOTHING else. For the purpose of minimizing testing paths,
-	 * The webservice executable is identical in every respect to the 
+	 * The webservice executable is identical in every respect to the
 	 * command line too and SHOULD BE MAINTAINED SO.
 	 */
 
@@ -737,7 +810,7 @@ int main( int argc, char *argv[] ) {
 
 	do {
 
-		static const char *CHAR_OPTIONS 
+		static const char *CHAR_OPTIONS
 #ifdef HAVE_LUA
 			= "s:hrt:N:P:n:x:c:DM:p:f:q:v:?X";
 #else
@@ -777,7 +850,7 @@ int main( int argc, char *argv[] ) {
 		};
 
 		int arg_index = 0;
-		const int c 
+		const int c
 			= getopt_long( argc, argv, CHAR_OPTIONS, LONG_OPTIONS, &arg_index );
 
 		switch (c) {
@@ -828,7 +901,7 @@ int main( int argc, char *argv[] ) {
 			arg_min_sample_count = atoi( optarg );
 			if( arg_min_sample_count < 2 ) {
 				warnx( "Seriously...%d samples is acceptable?\n"
-					"I don't think so... ;)\n", 
+					"I don't think so... ;)\n",
 					arg_min_sample_count );
 				exit( EXIT_FAILURE );
 			}
@@ -844,7 +917,7 @@ int main( int argc, char *argv[] ) {
 			} else
 			if( ! ( opt_p_value < 1.0 ) ) {
 				warnx( "p-value %.3f will filter nothing.\n"
-					"\tIs this really what you want?\n", 
+					"\tIs this really what you want?\n",
 					opt_p_value );
 			}
 			break;
@@ -852,16 +925,16 @@ int main( int argc, char *argv[] ) {
 		case 'J': // JSON format
 		case 'f': // tabular format
 			// Check for magic-value strings first
-			if( strcmp( MAGIC_STD, optarg ) == 0 )
+			if( strcmp( MAGIC_FORMAT_ID_STD, optarg ) == 0 )
 				_emit = format_standard;
 			else
-			if( strcmp( MAGIC_TCGA, optarg ) == 0 )
+			if( strcmp( MAGIC_FORMAT_ID_TCGA, optarg ) == 0 )
 				_emit = format_tcga;
 			else {
 				const char *specifier
 					= emit_config( optarg, c=='J' ? FORMAT_JSON : FORMAT_TABULAR );
 				if( specifier ) {
-					errx( -1, "invalid specifier \"%s\"", specifier ); 
+					errx( -1, "invalid specifier \"%s\"", specifier );
 				}
 				_emit = emit_exec;
 			}
@@ -869,6 +942,7 @@ int main( int argc, char *argv[] ) {
 
 		case 'q':
 			arg_q_value = atof( optarg );
+			_analyze = _fdr_cache;
 			break;
 
 		case 'v': // verbosity
@@ -888,7 +962,7 @@ int main( int argc, char *argv[] ) {
 #ifdef _DEBUG
 		case 258:
 			if( strchr( optarg, 'X' ) != NULL ) {
-				// Turn OFF all filtering to turn on "exhaustive" 
+				// Turn OFF all filtering to turn on "exhaustive"
 				// output mode.
 				opt_status_mask = 0;
 				opt_p_value     = 1.0;
@@ -920,7 +994,7 @@ int main( int argc, char *argv[] ) {
 			atexit( _freeLua ); // ...so lua_close needed NOWHERE else.
 			luaL_openlibs( _L );
 			if( _load_script( opt_script, _L ) != LUA_OK ) {
-				errx( -1, "in \"%s\": %s", 
+				errx( -1, "in \"%s\": %s",
 					opt_script, lua_tostring( _L,-1) );
 			}
 		} else
@@ -937,7 +1011,7 @@ int main( int argc, char *argv[] ) {
 
 			lua_getglobal( _L, opt_coroutine );
 			if( lua_isnil( _L, -1 ) ) {
-				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"", 
+				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"",
 					opt_coroutine, opt_script );
 			}
 
@@ -960,7 +1034,7 @@ int main( int argc, char *argv[] ) {
 		if( opt_type_parser ) {
 			lua_getglobal( _L, opt_type_parser );
 			if( lua_isnil( _L, -1 ) ) {
-				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"", 
+				errx( -1, "pair generator coroutine \"%s\" not defined in \"%s\"",
 					opt_type_parser, opt_script );
 			}
 			lua_pop( _L, 1 ); // clean the stack
@@ -983,7 +1057,7 @@ int main( int argc, char *argv[] ) {
 
 			lua_getglobal( _L, opt_coroutine );
 			if( lua_isnil( _L, -1 ) )
-				errx( -1, "%s not defined (in Lua's global namespace)", 
+				errx( -1, "%s not defined (in Lua's global namespace)",
 					opt_coroutine );
 
 			while( lua_status == LUA_YIELD ) {
@@ -1003,7 +1077,7 @@ int main( int argc, char *argv[] ) {
 
 			exit( EXIT_SUCCESS );
 		}
-	} else 
+	} else
 	if( opt_coroutine ) {
 		errx( -1, "coroutine specified (\"%s\") but no script", opt_coroutine );
 	}
@@ -1050,19 +1124,20 @@ int main( int argc, char *argv[] ) {
 		break;
 
 	case 2:
+	default:
 		i_file = argv[ optind++ ];
 		o_file = argv[ optind++ ];
-		break;
-
-	default:
-		fprintf( stderr,
-			"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
-		while( optind < argc )
-			fprintf( stderr, "\t\"%s\"\n", argv[optind++] );
-		exit( EXIT_FAILURE );
+		if( (argc-optind) > 2 && opt_verbosity > 0 ) {
+			fprintf( stderr,
+				"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
+			while( optind < argc )
+				fprintf( stderr, "\t\"%s\"\n", argv[optind++] );
+			if( opt_warnings_are_fatal )
+				exit( EXIT_FAILURE );
+		}
 	}
 
-	if( opt_pairlist_source != NULL 
+	if( opt_pairlist_source != NULL
 			&& strcmp( opt_pairlist_source, i_file ) == 0 ) {
 		errx( -1, "error: stdin specified (or implied) for both pair list and the input matrix\n" );
 	}
@@ -1086,16 +1161,16 @@ int main( int argc, char *argv[] ) {
 			strncpy( feature_selection, opt_single_pair, MAXLEN_FS );
 		} else
 		if( opt_pairlist_source ) {
-			snprintf( feature_selection, 
-				MAXLEN_FS, 
-				"by %s in %s", 
+			snprintf( feature_selection,
+				MAXLEN_FS,
+				"by %s in %s",
 				opt_by_name ? "name" : "offset", opt_pairlist_source );
 		} else {
 #ifdef HAVE_LUA
 			if( opt_coroutine )
-				snprintf( feature_selection, 
-					MAXLEN_FS, 
-					"%s in %s", 
+				snprintf( feature_selection,
+					MAXLEN_FS,
+					"%s in %s",
 					opt_coroutine, opt_script /* may be literal source */ );
 			else
 #endif
@@ -1130,7 +1205,7 @@ int main( int argc, char *argv[] ) {
 	if( fp ) {
 
 		const unsigned int FLAGS
-			= ( opt_header ? MTM_MATRIX_HAS_HEADER : 0 ) 
+			= ( opt_header ? MTM_MATRIX_HAS_HEADER : 0 )
 			| ( opt_row_labels ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
 			| ( opt_verbosity & MTM_VERBOSITY_MASK);
 
@@ -1143,13 +1218,13 @@ int main( int argc, char *argv[] ) {
 				&_matrix );
 		fclose( fp );
 
-		if( econd ) 
+		if( econd )
 			errx( -1, "mtm_parse returned (%d)", econd );
 		else
 			atexit( _freeMatrix );
 	}
 
-	if( opt_dry_run ) { // a second possible 
+	if( opt_dry_run ) { // a second possible
 		exit( EXIT_SUCCESS );
 	}
 
@@ -1164,12 +1239,12 @@ int main( int argc, char *argv[] ) {
 	  * Choose and open, if necessary, an output stream.
 	  */
 
-	g_fp_output 
+	_fp_output
 		= (strcmp( o_file, NAME_STDOUT ) == 0 )
 		? stdout
 		: fopen( o_file, "w" );
 
-	if( NULL == g_fp_output ) {
+	if( NULL == _fp_output ) {
 		err( -1, "opening output file \"%s\"", o_file );
 	}
 
@@ -1177,12 +1252,18 @@ int main( int argc, char *argv[] ) {
 		err( -1, "error: covan_init(%d)\n", _matrix.columns );
 	}
 
-	if( opt_verbosity > 0 ) 
-		fprintf( g_fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
+	if( opt_verbosity > 0 )
+		fprintf( _fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
 
+	if( USE_FDR_CONTROL ) {
+		_fp_cache = tmpfile();
+		_fdr_uncached_count = 0;
+		if( NULL == _fp_cache )
+			err( -1, "creating a temporary file" );
+	}
 
 	/**
-	  * Here the main decision is made regrding feature selection. 
+	  * Here the main decision is made regrding feature selection.
 	  * In order of precedence:
 	  * 1. single pair
 	  * 2. explicit pairs (by name or by offset)
@@ -1204,11 +1285,11 @@ int main( int argc, char *argv[] ) {
 		
 		if( fp ) {
 			const int econd
-				= opt_by_name 
+				= opt_by_name
 				? _analyze_named_pair_list( fp )
 				: _analyze_pair_list( fp );
 			if( econd )
-				warn( "error (%d) analyzing%s pair list", 
+				warn( "error (%d) analyzing%s pair list",
 					econd, opt_by_name ? " named" : "" );
 			fclose( fp );
 		} else
@@ -1216,44 +1297,31 @@ int main( int argc, char *argv[] ) {
 
 	} else {
 
-		if( USE_FDR_CONTROL ) {
-			g_fp_cache = tmpfile();
-			if( NULL == g_fp_cache )
-				err( -1, "creating a temporary file" );
-		}
-
 #ifdef HAVE_LUA
 		if( opt_coroutine )
 			_analyze_generated_pair_list( _L );
 		else
 #endif
 			_analyze_all_pairs();
-
-		// Post process results if FDR is in effect and the 
-		// 1st pass was allowed to complete.
-		// (Post-processing involves a repetition of all of the
-		//  above loop FOR A SUBSET of the original input.)
-
-		if( USE_FDR_CONTROL ) {
-			if( ! g_sigint_received ) {
-				fdr_postprocess( g_fp_cache, arg_q_value );
-			}
-			if( g_fp_cache ) 
-				fclose( g_fp_cache );
-		}
 	}
 
+	// Post process results if FDR is in effect and the 1st pass was
+	// allowed to complete. (Post-processing involves a repetition of
+	// analysis FOR A SUBSET of the original input.)
+
+	if( USE_FDR_CONTROL && (! g_sigint_received) ) {
+		_fdr_postprocess( _fp_cache, arg_q_value, _fp_output );
+	} else
 	if( opt_verbosity > 0 ) {
-		//int i;
-		fprintf( g_fp_output, "# Filter counts follow:\n" );
-#ifdef HAVE_ANALYSIS
-		for(i = 0; i < (int)CovarTypeCount; i++ ) {
-			// TODO: fprintf( g_fp_output, "# %s %d\n", COVAR_TYPE_STR[i], _filtered[i] );
-		}
-#endif
+		fprintf( _fp_output, "# %d filtered\n", _filtered );
+		// ...which does not apply in FDR control context.
 	}
 
-	fclose( g_fp_output );
+	if( _fp_cache )
+		fclose( _fp_cache );
+
+	if( _fp_output )
+		fclose( _fp_output );
 
 	return exit_status;
 }
