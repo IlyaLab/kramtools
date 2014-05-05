@@ -31,6 +31,7 @@
   *   3) Analysis failures (because of degeneracy) still return something
   *      the web service can deal with. Striving for data-as-error,
   *      instead of a separate error channel.
+  *   4) Insure mtm_resort is called before named rows are used.
   */
 
 #include <stdio.h>
@@ -112,6 +113,8 @@ static const char *opt_na_regex        = NULL; // initialized in main
 static       char *opt_single_pair     = NULL; // non-const because it's split
 
 static const char *opt_pairlist_source = NULL;
+
+static const char *NO_ROW_LABELS       = "matrix has no row labels";
 static bool        opt_by_name         = false;
 static const char *DEFAULT_COROUTINE   = "pair_generator";
 static const char *opt_coroutine       = NULL;
@@ -122,7 +125,22 @@ static const char *opt_format          = "tcga";
 
 static bool     opt_warnings_are_fatal = false;
 
-static int         opt_verbosity       = 0;
+/**
+  * Primary output and critical error messages.
+  */
+#define V_ESSENTIAL (1)
+
+/**
+  * Non-critical information that may, nonetheless, be helpful.
+  */
+#define V_WARNINGS  (2)
+
+/**
+  * Purely informational.
+  */
+#define V_INFO      (3)
+
+static int         opt_verbosity       = V_ESSENTIAL;
 
 static bool  opt_running_as_webservice = false;
 
@@ -398,12 +416,14 @@ static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 	// pass the now-established p-value threshold.
 
 	prec = sortbuf;
-	while( prec->p <= (i+1)*RATIO ) {
+	while( prec->p <= (i+1)*RATIO && i < CACHED_COUNT) {
 	
 		struct feature_pair fpair;
 		struct CovariateAnalysis covan;
 		memset( &covan, 0, sizeof(covan) );
 
+		fpair.l.offset = prec->a;
+		fpair.r.offset = prec->b;
 		fetch_by_offset( &_matrix, &fpair );
 
 		covan_exec( &fpair, &covan );
@@ -422,6 +442,15 @@ static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 		prec += 1;
 		i    += 1;
 	}
+	// However, the preceding loop exited
+	if( opt_verbosity >= V_WARNINGS ) {
+		if( i > 0 )
+			fprintf( final_output, "# max p-value %.3f\n", sortbuf[i-1].p );
+		else
+			fprintf( final_output, "# no values passed FDR control\n" );
+	}
+	if( sortbuf )
+		free( sortbuf );
 }
 
 
@@ -470,7 +499,8 @@ static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 	} else
 	if( HAVE_ROW_LABELS ) {
 		pair.l.name   = left;
-		mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+		if( mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC ) )
+			errx( -1, NO_ROW_LABELS );
 		econd = mtm_fetch_by_name( &_matrix, &(pair.l) );
 	} else
 		errx( -1, MISSING_MSG, left );
@@ -482,7 +512,8 @@ static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 	} else
 	if( HAVE_ROW_LABELS ) {
 		pair.r.name = right;
-		mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC );
+		if( mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC ) )
+			errx( -1, NO_ROW_LABELS );
 		econd = mtm_fetch_by_name( &_matrix, &(pair.r) );
 	} else
 		errx( -1, MISSING_MSG, right );
@@ -804,7 +835,7 @@ int main( int argc, char *argv[] ) {
 	if( opt_running_as_webservice ) {
 		// TODO: these need to be (re)defined.
 		opt_by_name        = true;
-		opt_verbosity      = 0;
+		opt_verbosity      = V_ESSENTIAL;
 		opt_p_value        = 1.0; // implies NO filtering.
 	}
 
@@ -1127,7 +1158,7 @@ int main( int argc, char *argv[] ) {
 	default:
 		i_file = argv[ optind++ ];
 		o_file = argv[ optind++ ];
-		if( (argc-optind) > 2 && opt_verbosity > 0 ) {
+		if( (argc-optind) > 2 && opt_verbosity >= V_ESSENTIAL ) {
 			fprintf( stderr,
 				"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
 			while( optind < argc )
@@ -1146,7 +1177,7 @@ int main( int argc, char *argv[] ) {
 	  * Emit intentions...
 	  */
 
-	if( opt_verbosity > 1 ) {
+	if( opt_verbosity >= V_INFO ) {
 
 #define MAXLEN_FS 75
 
@@ -1252,8 +1283,8 @@ int main( int argc, char *argv[] ) {
 		err( -1, "error: covan_init(%d)\n", _matrix.columns );
 	}
 
-	if( opt_verbosity > 0 )
-		fprintf( _fp_output, "# %d rows X %d (data) columns\n", _matrix.rows, _matrix.columns );
+	if( opt_verbosity >= V_INFO )
+		fprintf( _fp_output, "# %d rows/features X %d columns/samples\n", _matrix.rows, _matrix.columns );
 
 	if( USE_FDR_CONTROL ) {
 		_fp_cache = tmpfile();
@@ -1282,7 +1313,12 @@ int main( int argc, char *argv[] ) {
 			= strcmp(opt_pairlist_source,NAME_STDIN)
 			? fopen( opt_pairlist_source, "r" )
 			: stdin;
-		
+	
+		if( opt_by_name ) {	
+			if( mtm_resort_rowmap( &_matrix, MTM_RESORT_LEXIGRAPHIC ) )
+				errx( -1, NO_ROW_LABELS );
+		}
+
 		if( fp ) {
 			const int econd
 				= opt_by_name
@@ -1312,7 +1348,7 @@ int main( int argc, char *argv[] ) {
 	if( USE_FDR_CONTROL && (! g_sigint_received) ) {
 		_fdr_postprocess( _fp_cache, arg_q_value, _fp_output );
 	} else
-	if( opt_verbosity > 0 ) {
+	if( opt_verbosity >= V_ESSENTIAL ) {
 		fprintf( _fp_output, "# %d filtered\n", _filtered );
 		// ...which does not apply in FDR control context.
 	}
