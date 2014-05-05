@@ -24,7 +24,7 @@ This software has three high-level functions:
 	   ordinal, continuous).
 	3. Report a configurable amount of information on each test in either
 	   tabular or (soon) JSON format subject to configurable filters.
-	   Output filters include the option of Benjamini-Hochberg FDR conrol.
+	   Output filters include the option of Benjamini-Hochberg FDR control.
 
 Every run of pairwise involves these functions, but the exact behavior
 is under the control of *many* options, some described herein and some 
@@ -43,7 +43,7 @@ repeated here.**
 ^^^^
 
 ============================================================================
-STATISTICS
+STATISTICAL ISSUES
 ============================================================================
 
 Three separate statistics are computed for each pair of features.
@@ -96,6 +96,30 @@ Otherwise, if the table is 2x2, the Fisher exact test is performed.
 **Contingency table cleaning going to be revised/supplemented by univariate outlier
 detection and/or class balancing in the near future.**
 
+----------------------------------------------------------------------------
+Degeneracy and other factors in statistical quality
+----------------------------------------------------------------------------
+
+Various kinds of degeneracies can occur that render statistics unreliable 
+or simply incalculable. 
+
+Univariate degeneracies (degeneracy *within* a single feature) are 
+detected and flagged by the input parser (libmtm), but some degeneracies are
+only apparent after a pair of covariates is combined for analysis. The
+exclusion of samples which are missing in one or both features can decimate
+the total sample count. It may happen that only one category is observed
+in the remaining categorical data, or that a continuous feature becomes
+effectively constant. In extreme cases, there may be no common, non-missing
+samples.
+
+The executable tries to detect these situations and abort computations
+early, before NaNs arise. In any event, computations that produce NaNs 
+are treated as *untestable* cases.
+**These are not counted as tests for the purpose of FDR control.** 
+Moreover, the executable filters such results by default, so
+they should never appear in the output (unless explicitly requested using
+the --status-mask option).
+
 ^^^^
 
 ============================================================================
@@ -109,9 +133,9 @@ below.
 
 .. _JSON : http://json.org
 
-----------------------------
+----------------------------------------------------------------------------
 Content filtering
-----------------------------
+----------------------------------------------------------------------------
 
 Every pair analysis produces 17 items of data, any or all of which
 can be reported. You can select items for reporting as well as
@@ -196,11 +220,14 @@ format (exponential).
 
 **Some fields are not yet implemented, and will report as much if used.**
 
-----------------------------
+----------------------------------------------------------------------------
 False discovery rate control
-----------------------------
+----------------------------------------------------------------------------
 
-Coming soon...
+Activating FDR control (see online help) applies the Benjamini-Hochberg
+algorithm to *all successfully tested pairs* and outputs only those pairs
+with p-values below a calculated threshold.
+
 
 ^^^^
 
@@ -262,7 +289,8 @@ Run the pairwise as::
 
 	./pairwise yourdata.tab 
 
-Many command line options are available. Run pairwise with no arguments.
+Many command line options are available. Run pairwise either with no 
+arguments or with "-X" to see online help.
 
 ^^^^
 
@@ -334,18 +362,8 @@ The goal of speed is approached in two ways:
 	1. No memory allocation within loops; all memory is allocated before iteration commences.
 	2. Implementation in a compiled language
 
-Speed is no longer the *primary* driver of design. 
+Speed is no longer the *primary* driver of design.
 
-----------------------------------------------------------------------------
-Degeneracy handling
-----------------------------------------------------------------------------
-
-Two types of degeneracies occur:
-	1) those inherent in one (or both) *univariate* features
-		a) categorical data with < 2 categories
-		b) numerical data that is constant
-	2) those that only emerge in the covariate pair because missing
-	   data in one feature forces exclusion of values in the other
-
-Univariate degeneracies are detected and flagged by the input parser (libmtm).
+The goal is increasingly to be an easy-to-use one-stop package for
+"statistical best practice" applied to covariate features.
 
