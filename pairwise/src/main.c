@@ -32,6 +32,8 @@
   *      the web service can deal with. Striving for data-as-error,
   *      instead of a separate error channel.
   *   4) Insure mtm_resort is called before named rows are used.
+  *   5) Every statistical test must fully initialize 1st 4 members of
+  *      struct Statistic
   */
 
 #include <stdio.h>

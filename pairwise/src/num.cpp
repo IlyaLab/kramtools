@@ -110,6 +110,7 @@ int NumCovars::spearman_correlation( struct Statistic *result
 #endif
 		result->value = rho;
 	}
+	result->sample_count = N;
 
 	return 0;
 }
