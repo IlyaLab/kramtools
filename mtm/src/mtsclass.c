@@ -22,15 +22,23 @@ const char *stat_class_name( unsigned bitfield ) {
 		: STAT_CLASSES[ bitfield ];
 }
 
-static unsigned field_typeS[ 9 /* STAT_CLASS_ bitfield value */ ] = {
-	MTM_FIELD_TYPE_UNK,
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,
-	MTM_FIELD_TYPE_INT, // implies floats are an error
-	MTM_FIELD_TYPE_INT, // implies floats are an error
-	MTM_FIELD_TYPE_INT, // implies floats are an error
-	MTM_FIELD_TYPE_INT, // implies floats are an error
+/**
+  * These values CONSTRAIN the field type based on the specified
+  * statistical class. They DETERMINE the field type when and only
+  * when a single value is given (single bit is set).
+  * This mapping embodies a set of conventions that are somewhat arbitrary,
+  * but must be reflected in the implementation of _parseLine, particularly
+  * the implementation of inference revision.
+  */
+static unsigned field_types[ 9 /* STAT_CLASS_ bitfield value */ ] = {
+	MTM_FIELD_TYPE_UNK,                                // unknown
+	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // boolean
+	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // categorical
+	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // boolean OR categorical
+	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal
+	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR boolean
+	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR categorical
+	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR boolean OR categorical
 	MTM_FIELD_TYPE_FLT
 };
 
@@ -38,7 +46,7 @@ static unsigned field_typeS[ 9 /* STAT_CLASS_ bitfield value */ ] = {
 unsigned field_type_from_stat_class( unsigned bitfield ) {
 	return bitfield > 8
 		? MTM_FIELD_TYPE_UNK
-		: field_typeS[ bitfield ];
+		: field_types[ bitfield ];
 }
 
 

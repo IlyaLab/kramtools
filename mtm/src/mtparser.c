@@ -1,7 +1,6 @@
 
 /**
-  * See REAME.rst for format details. 
-  *
+  * See README.rst for format details.
   */
 
 #include <math.h>
@@ -31,7 +30,7 @@
 #include "mterror.h"
 
 extern int mtm_sclass_by_prefix( const char *token );
-extern int cardinality( 
+extern int cardinality(
 		const unsigned int *buf, int len, int largest_of_interest, const unsigned int NA );
 
 static const char *_BUG
@@ -69,7 +68,7 @@ static char COMMENT_PREFIX = '#';
   */
 enum Cache {
 	MATRIX_CACHE,     // Order matters! ...because _alloc_scratch only
-	DESCRIPTOR_CACHE, // allocates the first 2 caches when row names 
+	DESCRIPTOR_CACHE, // allocates the first 2 caches when row names
 	ROWID_CACHE,      // are not going to be used.
 	ROWMAP_CACHE,
 	CACHE_COUNT
@@ -129,13 +128,13 @@ static void _free_scratch( struct scratch *s ) {
   * This is atomic: if it doesn not entirely succeed, it deallocates/
   * frees whatever -was- allocated and returns CLEANLY.
   */
-static int _alloc_scratch( struct scratch *s, 
+static int _alloc_scratch( struct scratch *s,
 		int max_allowed_categories,
 		bool allocate_row_id_caches,
 		int verbosity ) {
 
 	const int cache_count
-		= allocate_row_id_caches 
+		= allocate_row_id_caches
 		? CACHE_COUNT
 		: 2;
 
@@ -159,7 +158,7 @@ static int _alloc_scratch( struct scratch *s,
 
 	for(i = 0; i < cache_count; i++ ) {
 		s->cache[i] = tmpfile();
-		if( s->cache[i] == NULL ) 
+		if( s->cache[i] == NULL )
 			break;
 	}
 	if( i < cache_count ) {
@@ -169,9 +168,9 @@ static int _alloc_scratch( struct scratch *s,
 	}
 
 	// Hash table for counting categorical variables' categories.
-	// Failure can only be due to out-of-memory condition. 
+	// Failure can only be due to out-of-memory condition.
 
-	s->set = szs_create( max_allowed_categories, 
+	s->set = szs_create( max_allowed_categories,
 			0, // strdup not necessary
 			fnv_32_str, FNV1_32_INIT );
 	if( s->set == NULL ) {
@@ -196,16 +195,17 @@ failure:
   * Strings are mapped in the order they first appear in the input (so the
   * first string is ALWAYS mapped to 0, etc).
   */
-static int _parseLine( char *line, 
-		struct scratch *s, 
-		int stat_class, 
+static int _parseLine( char *line,
+		struct scratch *s,
+		int stat_class,
 	   	int verbosity,
 		struct mtm_descriptor *d ) {
 
 	int field_type
 		= field_type_from_stat_class( stat_class );
 	const bool FIELD_TYPE_INFERRED
-		= (MTM_FIELD_TYPE_UNK == field_type );
+		= (__builtin_popcount( field_type ) != 1 );
+		// ...either MTM_FIELD_TYPE_UNK or multiple bits.
 
 	const char *token;
 	char *pc = line;
@@ -215,7 +215,7 @@ static int _parseLine( char *line,
 	int missing_value_count = 0;
 
 	/**
-	  * This union is used to quickly detect whether or not 
+	  * This union is used to quickly detect whether or not
 	  */
 	union {
 		mtm_fp_t  f;
@@ -238,8 +238,8 @@ static int _parseLine( char *line,
 			s->buf.cat[count++] = NAN_AS_UINT;
 
 			if( *pc++ )
-				continue; 
-			else 
+				continue;
+			else
 				break; // ...because we're already ON eol.
 		}
 
@@ -269,13 +269,13 @@ retry:
 		switch( field_type ) {
 
 		case MTM_FIELD_TYPE_FLT:
-			s->buf.num[ count++ ] 
+			s->buf.num[ count++ ]
 				= last_value_read.f
 				= strtof( token, &endpt );
 			break;
 
 		case MTM_FIELD_TYPE_INT:
-			s->buf.cat[ count++ ] 
+			s->buf.cat[ count++ ]
 				= last_value_read.i
 				= strtol( token, &endpt, 0 );
 			if( ! ( last_value_read.i < NAN_AS_UINT ) ) {
@@ -306,40 +306,77 @@ retry:
 
 		assert( __builtin_popcount( field_type ) == 1 );
 
-		// For numeric types if endpt wasn't advanced to the end-of-string
-		// the token does not contain the type it was believed to contain.
-		// This is either because of an overt error or because a floating-
-		// point line had some values without decimal points on it.
-		// As long as type wasn't -dictated- by stat class--that is, as
-		// long as the field_type was inferred--we can revise our inference
-		// in this case...
+		/**
+		  * REVISE INFERENCE if necessary:
+		  *
+		  * If endpt wasn't advanced to the end-of-string the token
+		  * does not contain the type it was believed to contain.
+		  * This is either because of an overt error or because the stat
+		  * class didn't fully constrain token type and the inference from
+		  * preceding fields was too narrow. Specifically either:
+		  * 1) a floating point line had an integral first value
+		  * 2) a string line had a numeric (integral or float) first value
+		  * As long as type wasn't completely determined by stat class--that
+		  * is, as long as the field_type was inferred--we can revise our
+		  * inference in these cases...
+		  */
 
 		if( *endpt /* token wasn't entirely consumed */ ) {
 
-			if( FIELD_TYPE_INFERRED
-				&& (field_type == MTM_FIELD_TYPE_INT) 
-				&& (MTM_FIELD_TYPE_FLT == toktype_infer( token, NULL ) ) ) {
+			// If the type was dictated rather than inferred we've
+			// encountered an error; revision is only possible on
+			// inferred types.
 
-				// Promote the line to floating-point type.
+			if( FIELD_TYPE_INFERRED  ) {
+
+				if( (field_type == MTM_FIELD_TYPE_INT)
+					&& (MTM_FIELD_TYPE_FLT == toktype_infer( token, NULL ) ) ) {
 #ifdef _DEBUG
-				fputs( "promoting integral line to float\n", stderr );
+					fputs( "promoting integral line to float\n", stderr );
 #endif
-				field_type = MTM_FIELD_TYPE_FLT;
-				--count;
-				// Convert all earlier values to float...
-				for(int i = 0; i < count; i++ ) {
-					if( NAN_AS_UINT != s->buf.cat[ i ] ) {
-						s->buf.num[i] = (float)s->buf.cat[i]; // in place!
+					field_type = MTM_FIELD_TYPE_FLT;
+					--count;
+					// Convert all earlier values to float...
+					for(int i = 0; i < count; i++ ) {
+						if( NAN_AS_UINT != s->buf.cat[ i ] ) {
+							s->buf.num[i] = (float)s->buf.cat[i]; // in place!
+						}
 					}
+					// ...and reparse current token.
+					s->buf.num[ count++ ]
+						= strtof( token, &endpt );
+				} else
+				if( (field_type != MTM_FIELD_TYPE_STR)
+					&& (MTM_FIELD_TYPE_STR == toktype_infer( token, NULL ) ) ) {
+#ifdef _DEBUG
+					fputs( "revising non-string line to string\n", stderr );
+#endif
+					assert( szs_count( s->set ) == 0 );
+					field_type = MTM_FIELD_TYPE_STR;
+
+					// Reparse line up to and including current token.
+					// Above inference of eol still holds, and, importantly,
+					// we can count on NUL-termination of ALL relevant
+					// tokens.
+
+					pc = line;
+					count = 0;
+					do {
+						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL ) {
+							return MTM_E_LIMITS;
+						}
+						s->buf.cat[ count++ ] = last_value_read.i;
+						if( pc == token) break;
+						pc += strlen(pc)+1;
+					} while( true );
+					pc += strlen(pc)+1;
+					endpt = ""; // to remove the error condition.
 				}
-				// ...and reparse current token.
-				s->buf.num[ count++ ] 
-					= strtof( token, &endpt );
 			}
 
 			if( *endpt ) // either because the line wasn't a candidate for
-				// integral-to-float promotion or because it was promoted
-				// but the current token -still- wasn't entirely consumed.
+				// revision or because it was revised, but the current
+				// token -still- wasn't entirely consumed.
 				return MTM_E_FORMAT_FIELD;
 		}
 	}
@@ -388,7 +425,7 @@ retry:
 		// Categorical (esp. BOOLEAN categorical) features may have been encoded
 		// directly in integral values instead of strings. Detect that here...
 		if( ! d->constant ) {
-			const int card 
+			const int card
 				= cardinality( s->buf.cat, count, s->max_categories, NAN_AS_UINT );
 			// If the cardinality is small enough (as defined by input parameters)
 			// it's treatable as a categorical variable whether it -is- or not...
@@ -417,7 +454,7 @@ retry:
   *
   * If the line contains only separators, all fields are empty!
   *
-  * Ihis, in particular, allows for the (R-style) of an empty 
+  * Ihis, in particular, allows for the (R-style) of an empty
   * left-justified field in the header line.
   */
 static int _count_columns( const char *pc ) {
@@ -445,7 +482,7 @@ static void _free_matrix( struct mtm_matrix *m ) {
   * Parse a text matrix satisfying the format description (elsewhere)
   * leaving the results in RAM and filling out the struct mtm_matrix with
   * the locations of the various parts of the parse results.
-  * 
+  *
   * Parsing means:
   * 1. the file is converted to binary form
   * 2. the format is implicitly validated (error-free return)
@@ -458,14 +495,14 @@ static void _free_matrix( struct mtm_matrix *m ) {
   * The <m> is non-NULL a memory-resident result is created.
   * If <outout> is non-NULL the result is written to file.
   */
-int mtm_parse( FILE *input, 
-		unsigned int flags, 
+int mtm_parse( FILE *input,
+		unsigned int flags,
 		const char *missing_data_regex,
 		int max_allowed_categories,
 		int (*infer_stat_class)(const char *),
 		struct mtm_matrix *m ) {
 
-	const int verbosity 
+	const int verbosity
 		= MTM_VERBOSITY_MASK & flags;
 	const bool EXPECT_ROW_NAMES
 		= ( flags & MTM_MATRIX_HAS_ROW_NAMES) != 0;
@@ -501,7 +538,7 @@ int mtm_parse( FILE *input,
 	if( getenv(ENVVAR_SEPARATOR) )
 		SEPARATOR = getenv(ENVVAR_SEPARATOR)[0];
 
-	econd = toktype_init( 
+	econd = toktype_init(
 		missing_data_regex ? missing_data_regex : mtm_default_NA_regex );
 	if( econd ) {
 		return MTM_E_INIT_REGEX;
@@ -538,7 +575,7 @@ int mtm_parse( FILE *input,
 #ifdef HAVE_MD5
 		if( hashstate ) md5_append( hashstate, (md5_byte_t*)line, llen );
 #endif
-		// Now replace newline, if present, with NUL terminator to 
+		// Now replace newline, if present, with NUL terminator to
 		// GUARANTEE NUL termination for all subsequent code.
 		// (Last line of file might not have a newline.)
 
@@ -588,13 +625,13 @@ int mtm_parse( FILE *input,
 
 			if( PRESERVE_ROWNAMES ) {
 				const struct mtm_row_id srn = {
-					fnum, 
+					fnum,
 					(const char*)ftell(s.cache[ROWID_CACHE])
 				};
 				const int NCHAR
-					= pc-line; // include the NUL terminator! 
+					= pc-line; // include the NUL terminator!
 				if( fwrite( line, sizeof(char), NCHAR, s.cache[ROWID_CACHE] )
-						!= NCHAR 
+						!= NCHAR
 					||
 					fwrite( &srn, sizeof(struct mtm_row_id), 1, s.cache[ROWMAP_CACHE] )
 						!= 1 ) {
@@ -615,12 +652,12 @@ int mtm_parse( FILE *input,
 		  * Finally write out the converted row and its descriptor.
 		  */
 
-		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, s.cache[MATRIX_CACHE] ) 
+		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, s.cache[MATRIX_CACHE] )
 				!= s.data_column_count ) {
 			econd = MTM_E_IO;
 			break;
 		}
-		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.cache[DESCRIPTOR_CACHE] ) 
+		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.cache[DESCRIPTOR_CACHE] )
 				!= 1 ) {
 			econd = MTM_E_IO;
 			break;
@@ -659,7 +696,7 @@ int mtm_parse( FILE *input,
 				m->size          += pa_sizeof_part[i];
 #ifdef _DEBUG
 				if( verbosity > 0 ) {
-					fprintf( stderr, "%s: cache %d: %ld bytes on disk, %ld bytes in RAM\n", 
+					fprintf( stderr, "%s: cache %d: %ld bytes on disk, %ld bytes in RAM\n",
 						MTMLIB, i, sizeof_part[i], pa_sizeof_part[i] );
 				}
 #endif
@@ -690,7 +727,7 @@ int mtm_parse( FILE *input,
 					}
 #ifdef _DEBUG
 					if( verbosity > 2 )
-						fprintf( stderr, "%s: %s <= %p (%ld bytes)\n", 
+						fprintf( stderr, "%s: %s <= %p (%ld bytes)\n",
 							MTMLIB, BLOCK_NAMES[i], ptr, sizeof_part[i] );
 #endif
 					// ...and update the matrix pointer.
@@ -734,7 +771,7 @@ int mtm_parse( FILE *input,
 
 		m->lexigraphic_order = false;
 #ifdef HAVE_MD5
-		for(int i = 0; i < MD5_DIGEST_LENGTH; i++ ) 
+		for(int i = 0; i < MD5_DIGEST_LENGTH; i++ )
 			sprintf( m->md5 + 2*i, "%02x", checksum[i] );
 		m->md5[ MD5_DIGEST_LENGTH*2 ] = 0;
 #endif
