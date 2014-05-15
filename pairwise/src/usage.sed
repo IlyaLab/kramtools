@@ -9,9 +9,8 @@ n
 
 # Escape any and all EXISTING quotes
 s/"/\\"/g
-# Escape any and all EXISTING tabs
-s/\t/\\t/g
-s/\t/\\t/g
+# Convert any and all EXISTING to fixed whitespace.
+s/\t/    /g
 
 # Surround every line NOT prefixed with # or U with quotes and an escaped newline.
 /^[^#]/s/^/"/
