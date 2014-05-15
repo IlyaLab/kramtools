@@ -12,6 +12,8 @@ If either (or both) are missing stdin or stdout is used for the missing
 file, as appropriate. If only one filename is present it is treated as 
 input if it exists and output otherwise, and a std* stream is used for
 the other.
+If more than two positional arguments are given, the first two will be
+treated as input and output filenames and the remainder ignored.
 
 ============================================================================
 General options:
