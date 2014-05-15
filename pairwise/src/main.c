@@ -1160,9 +1160,13 @@ int main( int argc, char *argv[] ) {
 	default:
 		i_file = argv[ optind++ ];
 		o_file = argv[ optind++ ];
-		if( (argc-optind) > 2 && opt_verbosity >= V_ESSENTIAL ) {
+		if( (argc-optind) > 0 && opt_verbosity >= V_ESSENTIAL ) {
+			// This behavior or ignoring "extra" arguments is implemented
+			// ONLY so that this executable plays nicely with a job control
+			// system which uses extra command line args NOT intended for
+			// the executable. TODO: Revisit this!
 			fprintf( stderr,
-				"error: too many (%d) positional arguments supplied. Expect 0, 1, or 2.\n", argc - optind );
+				"warning: ignoring %d trailing positional arguments.\n", argc-optind );
 			while( optind < argc )
 				fprintf( stderr, "\t\"%s\"\n", argv[optind++] );
 			if( opt_warnings_are_fatal )
