@@ -71,7 +71,7 @@ options, --pair overrides --by-{name|index}.
 	-- Any non-digit character(s) can be used as separators, and
 	   no distinction is made between the separators within pairs
 	   and separators between pairs.
-	In other words exact format doesn't matter--digits need only by
+	In other words exact format doesn't matter; digits need only be
 	separated by non-digits.
 
 If none of the preceding options are given, then analysis is run for
