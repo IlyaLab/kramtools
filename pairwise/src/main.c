@@ -36,10 +36,14 @@
   *      struct Statistic
   */
 
+#ifdef _BUILD_PYTHON_BINDING
+#include <Python.h>
+#else
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#endif
 #include <time.h>
 #include <math.h>
 #include <signal.h>
@@ -63,6 +67,8 @@
 #include "varfmt.h"
 #include "fixfmt.h"
 #include "limits.h"
+
+#ifndef _BUILD_PYTHON_BINDING
 
 #ifdef HAVE_LUA
 #include "lua.h"
@@ -783,7 +789,50 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_p_value,
 		  	AUTHOR_EMAIL );
 }
+#endif
 
+#ifdef _BUILD_PYTHON_BINDING
+
+/***************************************************************************
+  * Python interface
+  */
+
+static PyObject * _run( PyObject *self, PyObject *args ) {
+	FILE *fp = NULL;
+	PyObject *fobj = NULL;
+	if( ! PyArg_ParseTuple( args, "O", &fobj ) )
+		return NULL;
+	if( ! PyFile_Check( fobj ) )
+		return NULL;
+	fp = PyFile_AsFile( fobj );
+	if( fp ) {
+		char *line = NULL;
+		size_t n   = 0;
+		PyFile_IncUseCount(fobj);
+		Py_BEGIN_ALLOW_THREADS
+		while( getline( &line, &n, fp ) > 0 ) {
+			fputs( line, stdout );
+		}
+		if( line )
+			free( line );
+		Py_END_ALLOW_THREADS
+		PyFile_DecUseCount(fobj);
+	}
+	//fprintf( stdout, "Hello from _run (%p)\n", fobj );
+	Py_RETURN_NONE;
+}
+
+static PyMethodDef methods[] = {
+	{"run",_run,METH_VARARGS},
+	{NULL,NULL},
+};
+
+PyMODINIT_FUNC initpairwise(void) {
+	PyObject *m
+		= Py_InitModule( "pairwise", methods );
+}
+
+#else
 
 int main( int argc, char *argv[] ) {
 
@@ -1367,4 +1416,6 @@ int main( int argc, char *argv[] ) {
 
 	return exit_status;
 }
+
+#endif
 
