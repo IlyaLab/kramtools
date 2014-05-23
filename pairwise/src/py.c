@@ -12,7 +12,7 @@ static PyObject * _run( PyObject *self, PyObject *args ) {
 	if( fp ) {
 		char *line = NULL;
 		size_t n   = 0;
-		PyFile_IncUseCount(fobj);
+		PyFile_IncUseCount((PyFileObject *)fobj);
 		Py_BEGIN_ALLOW_THREADS
 		while( getline( &line, &n, fp ) > 0 ) {
 			fputs( line, stdout );
@@ -20,7 +20,7 @@ static PyObject * _run( PyObject *self, PyObject *args ) {
 		if( line )
 			free( line );
 		Py_END_ALLOW_THREADS
-		PyFile_DecUseCount(fobj);
+		PyFile_DecUseCount((PyFileObject *)fobj);
 	}
 	//fprintf( stdout, "Hello from _run (%p)\n", fobj );
 	Py_RETURN_NONE;

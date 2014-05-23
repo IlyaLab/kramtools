@@ -68,20 +68,21 @@
 #include "fixfmt.h"
 #include "limits.h"
 
-#ifndef _BUILD_PYTHON_BINDING
-
 #ifdef HAVE_LUA
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 #endif
 
+// TODO: LUA and Python are mutually exclusive.
 /***************************************************************************
  * externs
  */
 
-extern int get_base10_ints( FILE *fp, int *index, int n );
 extern int mtm_sclass_by_prefix( const char *token );
+
+#ifndef _BUILD_PYTHON_BINDING
+extern int get_base10_ints( FILE *fp, int *index, int n );
 
 /***************************************************************************
  * Globals & statics
@@ -92,18 +93,7 @@ static const char *MAGIC_FORMAT_ID_STD  = "std";
 static const char *MAGIC_FORMAT_ID_TCGA = "tcga";
 
 const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
-
-static FILE *_fp_output = NULL;
 static FILE *_fp_cache  = NULL;
-
-static void (*_emit)( EMITTER_SIG ) = format_tcga;
-
-#define GLOBAL
-GLOBAL unsigned  arg_min_cell_count   = 5;
-GLOBAL unsigned  arg_min_mixb_count   = 1;
-GLOBAL unsigned  arg_min_sample_count = 2; // < 2 NEVER makes sense
-GLOBAL bool g_sigint_received         = false; // fdr.d needs access
-#undef  GLOBAL
 
 static const char *TYPE_PARSER_INFER   = "auto";
 static double arg_q_value              = 0.0;
@@ -116,8 +106,6 @@ static const char *opt_script          = NULL;
 static bool        opt_header          = true;
 static bool        opt_row_labels      = true;
 static const char *opt_type_parser     = NULL;
-static const char *opt_na_regex        = NULL; // initialized in main
-
 static       char *opt_single_pair     = NULL; // non-const because it's split
 
 static const char *opt_pairlist_source = NULL;
@@ -127,10 +115,7 @@ static bool        opt_by_name         = false;
 static const char *DEFAULT_COROUTINE   = "pair_generator";
 static const char *opt_coroutine       = NULL;
 static bool        opt_dry_run         = false;
-
-static double      opt_p_value         = 1.0;
 static const char *opt_format          = "tcga";
-
 static bool     opt_warnings_are_fatal = false;
 
 /**
@@ -151,6 +136,22 @@ static bool     opt_warnings_are_fatal = false;
 static int         opt_verbosity       = V_ESSENTIAL;
 
 static bool  opt_running_as_webservice = false;
+#endif
+
+static FILE *_fp_output = NULL;
+static void (*_emit)( EMITTER_SIG ) = format_tcga;
+
+#define GLOBAL
+GLOBAL unsigned  arg_min_cell_count   = 5;
+GLOBAL unsigned  arg_min_mixb_count   = 1;
+GLOBAL unsigned  arg_min_sample_count = 2; // < 2 NEVER makes sense
+GLOBAL bool g_sigint_received         = false; // fdr.d needs access
+#undef  GLOBAL
+
+static const char *opt_na_regex        = NULL; // initialized in main
+
+static double      opt_p_value         = 1.0;
+
 
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
@@ -308,6 +309,8 @@ static void _error_handler(const char * reason,
 		gsl_errno, reason, file, line );
 }
 
+
+#ifndef _BUILD_PYTHON_BINDING
 
 /***************************************************************************
   * FDR processing
@@ -671,6 +674,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 	return 0;
 }
 #endif
+#endif
 
 /**
   * This clause serves the primary use case motivating this
@@ -740,6 +744,7 @@ static int /*AALL*/ _analyze_all_pairs() {
   * Online help
   */
 
+#ifndef _BUILD_PYTHON_BINDING
 static const char *_YN( bool y ) {
 	return y ? "yes" : "no";
 }
@@ -798,27 +803,59 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
   */
 
 static PyObject * _run( PyObject *self, PyObject *args ) {
-	FILE *fp = NULL;
-	PyObject *fobj = NULL;
-	if( ! PyArg_ParseTuple( args, "O", &fobj ) )
+
+	int err = 0;
+	FILE *fp_input = NULL;
+	PyObject *fobj[2];
+
+	if( ! PyArg_ParseTuple( args, "OO", fobj+0, fobj+1 ) )
 		return NULL;
-	if( ! PyFile_Check( fobj ) )
+	if( ! PyFile_Check( fobj[0] ) && ! PyFile_Check( fobj[1] ) )
 		return NULL;
-	fp = PyFile_AsFile( fobj );
-	if( fp ) {
+
+	fp_input = PyFile_AsFile( fobj[0] );
+	_fp_output = PyFile_AsFile( fobj[1] );
+
+	if( fp_input != NULL && _fp_output != NULL ) {
 		char *line = NULL;
 		size_t n   = 0;
-		PyFile_IncUseCount(fobj);
+		PyFile_IncUseCount((PyFileObject*)fobj[0]);
+		PyFile_IncUseCount((PyFileObject*)fobj[1]);
 		Py_BEGIN_ALLOW_THREADS
+#if 0
 		while( getline( &line, &n, fp ) > 0 ) {
 			fputs( line, stdout );
 		}
 		if( line )
 			free( line );
+#else
+		/**
+		  * Load the input matrix.
+		  */
+
+		err	= mtm_parse( fp_input,
+				MTM_MATRIX_HAS_ROW_NAMES,
+				mtm_default_NA_regex,
+				MAX_CATEGORY_COUNT,
+				mtm_sclass_by_prefix,
+				&_matrix );
+
+		if( err ) {
+			fprintf( stderr, "failed loading matrix (%d)\n", err );
+			goto unwind0;
+		}
+
+		if( covan_init( _matrix.columns ) ) goto unwind1;
+
+		_analyze_all_pairs();
+unwind1:
+		_matrix.destroy( &_matrix );
+unwind0:
+#endif
 		Py_END_ALLOW_THREADS
-		PyFile_DecUseCount(fobj);
+		PyFile_DecUseCount((PyFileObject*)fobj[1]);
+		PyFile_DecUseCount((PyFileObject*)fobj[0]);
 	}
-	//fprintf( stdout, "Hello from _run (%p)\n", fobj );
 	Py_RETURN_NONE;
 }
 

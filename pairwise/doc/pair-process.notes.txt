@@ -1,0 +1,90 @@
+NOTE: I have $TCGAFMP_ROOT_DIR set like this:
+TCGAFMP_ROOT_DIR=/users/sreynold/git_home/gidget/commands/feature_matrix_construction
+
+
+TOP-LEVEL BASH SCRIPT: $TCGAFMP_ROOT_DIR/shscript/PairProcess.sh
+
+* Command-line arguments for the PairProcess.sh script:
+    curDate
+    tumor
+    tsvExt
+
+* The name of the tsvFile is then constructed like this:
+    tsvFile=$TCGAFMP_DATA_DIR/$tumor/$curDate/$tumor.seq.$curDate.$tsvExt
+
+and the script loops over the lines in a config file, calling 
+        $TCGAFMP_ROOT_DIR/main/run_pwRK3.py
+for each line in the config file.  The config file comes from
+        $TCGAFMP_DATA_DIR/$tumor/aux/PairProcess_config.csv
+if there is such a file, otherwise from 
+        $TCGAFMP_ROOT_DIR/shscript/PairProcess_config.csv
+
+one example call looks like this:
+        $TCGAFMP_ROOT_DIR/main/run_pwRK3.py  --pvalue 1.e-30 \
+                --byType  --type1 GEXP  --type2 METH \
+                --forRE   --tsvFile $tsvFile
+
+
+
+INNER PYTHON SCRIPT: $TCGAFMP_ROOT_DIR/main/run_pwRK3.py
+Basic operations:
+    a) figure out the index-ranges for the features that are being requested
+       for example: GEXP features are from index #16209 - #25510
+                                  and from index #33357 - #40470
+                and METH features are from index # 5837 - #16207
+                                  and from index #25519 - #33174
+
+    b) split up the ranges if they are very big, so that we can generate more
+       jobs on the cluster ... but not too many ... I try and make about 20
+       "range blocks" for each feature so that the all-by-all will result in 
+       about 20^2 jobs on the cluster
+           so the block (16209, 25510)
+           will get split into, for example: (16209, 17029), (17029, 17849), (17849, 18669), ... 
+
+    c) pre-process the TSV file (prep4pairwise) if necessary
+
+    d) generate a random job name and create a scratch directory for the results
+
+    e) in the scratch directory, create the "runList.txt" file which defines 
+       the cluster jobs -- each line is a single call to pairwise-1.1.2, to test 
+       one block of features against another block of features (with an attempt at 
+       preventing duplicate comparisons when the blocks overlap each other)
+
+POST-PROCESSING:
+    a) after pairwise runs on the cluster, there will be a set of *.pw output 
+       files in the scratch directory that was created (one for each cluster task)
+       -- each of these files has the following 11 columns:
+                 1 : name of feature A
+                 2 : name of feature B
+                 3 : comparison type (eg 'NN', 'NC', etc)
+                 4 : Spearman correlation coefficient (signed) -- is sometimes "nan"
+                 5 : number of samples used
+                 6 : -log10 p-value (uncorrected)
+                 7 : number of samples in feature A that were ~not~ used
+                 8 : p-value for test that the feature A samples that were not used are different from the ones that were used
+                 9 : same as #7 but for feature B
+                10 : same as #8 but for feature B
+                11 : information about culling (?) -- not used
+
+    b) each of these files is read and each output line is looked at and a decision
+       is made whether to keep it or not, then  new output file is written out
+       that combines all of the *.pw outputs and has 12 columns:
+                 1 : name of feature A                (col #1 above)
+                 2 : name of feature B                (col #2 above)
+                 3 : Spearman correlation coefficient (col #4 above)
+                 4 : number of samples used           (col #5 above)
+                 5 : -log10 p-value (uncorrected)     (col #6 above)
+                 6 : log10(Bonferroni correction factor) -- computed by counting number of tests performed
+                 7 : -log10(corrected p-value)
+                 8 : (col #7 above)
+                 9 : (col #8 above)
+                10 : (col #9 above)
+                11 : (col #10 above)
+                12 : genomic distance between features A and B (or 500000000)
+
+    c) these new output files are then sorted based on column #5 and the top M
+       significant pairs are kept for importing into Regulome Explorer --
+       obviously if the file is very big (like 200 million lines), the sorting
+       can take a very long time
+
+

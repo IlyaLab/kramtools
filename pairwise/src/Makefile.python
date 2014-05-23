@@ -1,0 +1,109 @@
+
+############################################################################
+# Product file names
+############################################################################
+
+EXECUTABLE_BASENAME=pairwise
+VER_MAJ=2
+VER_MIN=0
+VER_FIX=0
+VER_TAG=rc
+VERSION=-D_VER_MAJ=$(VER_MAJ)\
+	   	-D_VER_MIN=$(VER_MIN)\
+	   	-D_VER_FIX=$(VER_FIX)\
+		-D_VER_TAG=\"$(VER_TAG)\"
+
+VERSIONED_EXECUTABLE=$(EXECUTABLE_BASENAME)-$(VER_MAJ).$(VER_MIN).$(VER_FIX)$(VER_TAG)
+
+ARCHIVE_NAME=pairwise
+
+############################################################################
+# Dependencies
+############################################################################
+
+GSLINC=$(HOME)/include
+LIBDIR=$(HOME)/lib
+PYTHON_INC=/home/rkramer/include/python2.7
+
+############################################################################
+# Sources
+############################################################################
+
+SOURCES=main.c \
+	fp.c \
+	analysis.cpp \
+	cat.cpp \
+	mix.cpp \
+	num.cpp \
+	featpair.c\
+	fixfmt.c
+
+SRCLIB=../../lib/c
+CONTRIB=$(SRCLIB)/contrib
+MD5DIR=$(CONTRIB)/md5
+
+LIBSOURCES=rank.c \
+	fisher.c \
+	min2.c
+
+SOURCES+=$(addprefix $(SRCLIB)/,$(LIBSOURCES))
+OBJECTS=$(addsuffix .o,$(basename $(SOURCES)))
+LIBOBJS=mtparser.o\
+	mtmatrix.o\
+	toktype.o\
+	syspage.o\
+	cardinality.o\
+	mtsclass.o\
+	strset.o\
+	hash_32.o
+
+#$(error   $(OBJECTS) )
+
+EXECUTABLES=pairwise.so
+
+############################################################################
+# Compilation options
+############################################################################
+
+CFLAGS+=-D_BUILD_PYTHON_BINDING=1
+
+CFLAGS+=-I$(SRCLIB)
+CFLAGS+=-I$(GSLINC)
+CFLAGS+=-I$(PYTHON_INC)
+CFLAGS+=-I../../mtm/src
+
+# Following for Python extension build.
+CFLAGS+=-pthread -static -fno-strict-aliasing -fwrapv -fPIC 
+# SHOULD also include -Wstrict-prototypes, but gcc complains re C++.
+
+ifdef DEBUG
+CFLAGS+=-O0 -g -D_DEBUG -Wall
+else
+CFLAGS+=-O3 -DNDEBUG
+endif
+
+LDFLAGS+=-L$(LIBDIR)
+
+############################################################################
+# Primary
+
+all : $(EXECUTABLES)
+
+
+%.o : %.cpp
+	g++ -c -o $@ $(CFLAGS) $^ /home/rkramer/lib/libmtm.a $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm 
+
+%.o : %.c
+	$(CC) -c -o $@ $(CFLAGS) $^ /home/rkramer/lib/libmtm.a $(LDFLAGS) -lgslcblas -lgsl -lm 
+
+pairwise.so : $(OBJECTS)
+	g++ -o $@  -shared -pthread -fno-strict-aliasing -fwrapv -fPIC  $^ 
+
+#pairwise.so : $(SOURCES)
+#	$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
+
+clean :
+	rm -rf $(EXECUTABLES) 
+
+.PHONY : clean archive
+
