@@ -20,7 +20,7 @@ int fexact_reserve( unsigned int n );
   * Forced immediate free'ing of private buffer.
   * Idempotent.
   */
-void fexact_release();
+void fexact_release( void );
 
 /**
   * Calculates just the two-tail probability of a 2x2 counts table 

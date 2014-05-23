@@ -16,7 +16,7 @@ static unsigned int _allocn = 0;
   */
 static int _callback_registered = 0;
 
-static void _fexact_free() {
+static void _fexact_free( void ) {
 	if( _buf ) free( _buf );
 }
 
