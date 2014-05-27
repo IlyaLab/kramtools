@@ -20,7 +20,7 @@
 #include <gsl/gsl_cdf.h>
 
 #include "stattest.h"
-#include "mix.h"
+#include "mix.hpp"
 #include "bvr.h"
 #include "limits.h"
 
@@ -209,7 +209,7 @@ bool MixCovars::complete() {
 		assert( edge[0].index < expected_categories );
 
 		edge[0].count = category_count[ edge[0].index ];
-		edge[0].meanRank = mean_rank_of_ties( 0,    edge[0].count          );
+		edge[0].meanRank = MEAN_RANK_OF_TIES( 0,    edge[0].count          );
 
 		edge[1].count = category_count[ edge[1].index ];
 
@@ -217,7 +217,7 @@ bool MixCovars::complete() {
 			edge[1].count < arg_min_mixb_count )
 			return false; // another degeneracy class
 
-		edge[1].meanRank = mean_rank_of_ties( edge[0].count, samples.size());
+		edge[1].meanRank = MEAN_RANK_OF_TIES( edge[0].count, samples.size());
 
 		assert( (edge[0].count + edge[1].count) == samples.size() );
 	}

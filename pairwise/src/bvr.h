@@ -14,11 +14,8 @@
   * ...if m is the number of zeros (3 above) and n is the total vector 
   * length (8 above) the mean of the ranks of the 1's is...
   */
-inline float mean_rank_of_ties( unsigned m, unsigned n ) {
-	return ( n*(n+1.0) - m*(m+1.0) )
-		               /
-		         ( 2.0 * (n-m) );
-}
+
+#define MEAN_RANK_OF_TIES(m,n) (((n)*((n)+1.0)-(m)*((m)+1.0))/(2.0*((n)-(m))))
 
 #endif
 

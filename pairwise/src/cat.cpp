@@ -1,5 +1,5 @@
 
-#ifdef _UNITTEST_CAT_
+#ifdef _DEBUG
 #include <iostream>
 #else
 #include <ostream>
@@ -14,7 +14,7 @@
 #include <gsl/gsl_cdf.h>
 
 #include "stattest.h"
-#include "cat.h"
+#include "cat.hpp"
 #include "fisher.h"
 #include "min2.h"
 #include "bvr.h"
@@ -218,12 +218,14 @@ unsigned int CatCovars::cullBadCells( char *log, int buflen ) {
 
 		if( calculated < Marginals ) calc_marginals();
 
-#ifdef _UNITTEST_CAT_
-		cout << counts[linoff] << " at linear offset " << linoff 
-			<< " (row " << r 
-			<< ", col " << c << ") is < " << minimumAllowedCellCount << ". Row/col marginals are "
-			<< rmarg[r] << "/" 
-			<< cmarg[c] << ", resp." << endl;
+#ifdef _DEBUG
+		if( getenv("SHOW_CULLING") ) {
+			cerr << counts[linoff] << " at linear offset " << linoff 
+				<< " (row " << r 
+				<< ", col " << c << ") is < " << minimumAllowedCellCount << ". Row/col marginals are "
+				<< rmarg[r] << "/" 
+				<< cmarg[c] << ", resp." << endl;
+		}
 #endif
 
 		if( rmarg[r] < cmarg[c] ) { // Prefer to cull row
@@ -691,9 +693,9 @@ double CatCovars::spearman_rho() const {
 
 		const float MU    = (sample_count+1.0)/2.0;
 		const float r0_mu = (r0+1.0)/2.0;
-		const float r1_mu = mean_rank_of_ties( r0, sample_count );
+		const float r1_mu = MEAN_RANK_OF_TIES( r0, sample_count );
 		const float c0_mu = (c0+1.0)/2.0;
-		const float c1_mu = mean_rank_of_ties( c0, sample_count );
+		const float c1_mu = MEAN_RANK_OF_TIES( c0, sample_count );
 
 		/**
 		  * Following is a heavily compacted form of the Pearson rho,

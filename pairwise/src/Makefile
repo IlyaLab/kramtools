@@ -30,10 +30,6 @@ LIBDIR=$(HOME)/lib
 
 SOURCES=main.c \
 	fp.c \
-	analysis.cpp \
-	cat.cpp \
-	mix.cpp \
-	num.cpp \
 	featpair.c\
 	fixfmt.c \
 	varfmt.c
@@ -72,6 +68,10 @@ endif
 CFLAGS+=-I$(SRCLIB)
 CFLAGS+=-I$(GSLINC)
 CFLAGS+=-I../../mtm/src
+CFLAGS+=-D_POSIX_C_SOURCE=200809L
+# ...for getline declarations in main.c
+CFLAGS+=-D_SVID_SOURCE
+# ...for strdup declarations varfmt.c
 
 LDFLAGS+=-L$(LIBDIR)
 
@@ -91,7 +91,12 @@ usage_full.c : usage_full.txt
 usage_short.c : usage_short.txt
 	sed -f usage.sed $< > $@
 
-$(VERSIONED_EXECUTABLE) : $(SOURCES) usage_full.c usage_short.c
+$(VERSIONED_EXECUTABLE) : $(SOURCES) analysis.c cat.c mix.c num.c usage_full.c usage_short.c
+	$(CC) -o $@ -std=c99 -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
+
+# Following target will be eliminated away as soon as gratuitous C++ purged.
+
+pairwise-cpp : $(SOURCES) analysis.cpp cat.cpp mix.cpp num.cpp usage_full.c usage_short.c
 	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
 
 unittests : $(UNITTESTS)
@@ -102,13 +107,13 @@ unittests : $(UNITTESTS)
 ut_bvr : bvr.c
 	$(CC) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_BVR_ $^
 
-ut_mix : mix.cpp
+ut_mix : mix.c
 	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_MIX_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_cat : cat.cpp $(addprefix $(SRCLIB)/,fisher.c min2.c)
+ut_cat : cat.c $(addprefix $(SRCLIB)/,fisher.c min2.c)
 	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_CAT_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
-ut_num : num.cpp fp.c $(addprefix $(SRCLIB)/,rank.c)
+ut_num : num.c fp.c $(addprefix $(SRCLIB)/,rank.c)
 	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
 ut_varfmt : varfmt.c

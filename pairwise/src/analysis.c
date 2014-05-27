@@ -1,15 +1,9 @@
 /**
- * Three C++ classes handle all actual analysis:
- * 1) CatCovars deals with pairs of categorical vectors.
- * 2) MixCovars deals with pairs containing one numeric and one categoric
- *    variable.
- * 3) NumCovars deals with pairs of numeric vectors.
- *
  * This module is really just a dispatcher and metadata collector for
- * all four possibilities:
- * 1) numeric, numeric
- * 2) categorical, numeric
- * 3) numeric, categorical 
+ * the four currently supported feature class combinations:
+ * 1) continuous, continuous
+ * 2) categorical, continuous
+ * 3) continuous, categorical 
  * 4) categorical, categorical
  *
  * Importantly (for performance) each (statically-allocated) class 
@@ -31,24 +25,25 @@
  *    puts some hard constraints on the approach to code.
  */
 
-#include <ostream>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cmath>
-#include <cassert>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+#include <math.h>
+#include <assert.h>
 
 #include "stattest.h"
-#include "analysis.h"
-#include "cat.hpp"
-#include "mix.hpp"
-#include "num.hpp"
-#include "args.h"
 #include "mtmatrix.h"
+#include "featpair.h"
+#include "analysis.h"
+
+#include "cat.h"
+#include "mix.h"
+#include "num.h"
+#include "args.h"
 #include "mtsclass.h"
 #include "limits.h"
 
-#include "featpair.h"
 
 /**
   * Most arrays are pre-allocated and sized according to this variable.
@@ -58,36 +53,34 @@ static int max_sample_count = 0;
 /**
  * These classes handle the actual feature1 vs feature2 analyses.
  */
-static CatCovars _caccum( MAX_CATEGORY_COUNT, MAX_CATEGORY_COUNT );
-static MixCovars _maccum( MAX_CATEGORY_COUNT );
-static NumCovars _naccum;
+static void *_caccum = NULL;
+static void *_maccum = NULL;
+static void *_naccum = NULL;
 
 /**
  * These classes handle comparisons between the two groups WITHIN a
  * single feature distinguished according to whether the corresponding
- * covariate (in the other feature) is present (not "NA").
- * In numeric/numeric comparisons are both used, in numeric/categorical
+ * covariate (in the other feature) is present (not "NA"). In continuous/
+ * continuous comparisons are both used, in continuous/categorical
  * comparisons one or the other is used, and in cat/cat neither is used.
  *
- * Notice that in general counts by category in categorical/numeric
+ * Notice that in general counts by category in categorical/continuous
  * pairs are generally unavailable with one exception: the category 0's
  * count is always output by the Kruskal-Wallis test. This is motivated
  * primarily by the application defined above. As a result, it is 
  * ESSENTIAL THAT SAMPLES PRESENT IN FEAT1 BUT MISSING IN FEAT2 ARE
  * TAGGED WITH 0 IN _Lwaste (vica versa for 2).
  */
-static MixCovars _Lwaste( MAX_CATEGORY_COUNT );
-static MixCovars _Rwaste( MAX_CATEGORY_COUNT );
+static void *_Lwaste = NULL;
+static void *_Rwaste = NULL;
 
-/**
- * Let C++ choose the appropriate one...
- */
-inline bool _present( unsigned int u ) {
-	return 0x7FC00000 != u;
-}
+static void _covan_fini() {
 
-inline bool _present( float f ) {
-	return not isnan(f);
+	if( _Rwaste ) mix_destroy( _Rwaste );
+	if( _Lwaste ) mix_destroy( _Lwaste );
+	if( _naccum ) con_destroy( _naccum );
+	if( _maccum ) mix_destroy( _maccum );
+	if( _caccum ) cat_destroy( _caccum );
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -102,12 +95,16 @@ int covan_init( int columns ) {
 
 	max_sample_count = columns; // EVERYTHING depends on this.
 
-	_naccum.reserve( max_sample_count );
-	_maccum.reserve( max_sample_count );
-	_Lwaste.reserve( max_sample_count );
-	_Rwaste.reserve( max_sample_count );
+	_caccum = cat_create( MAX_CATEGORY_COUNT, MAX_CATEGORY_COUNT );
+	_maccum = mix_create( max_sample_count,   MAX_CATEGORY_COUNT );
+	_naccum = con_create( max_sample_count );
 
-	_caccum.setMinCellCount( arg_min_cell_count );
+	_Lwaste = mix_create( max_sample_count,   MAX_CATEGORY_COUNT );
+	_Rwaste = mix_create( max_sample_count,   MAX_CATEGORY_COUNT );
+
+	cat_setMinCellCount( _caccum, arg_min_cell_count );
+
+	atexit( _covan_fini );
 
 	return 0;
 }
@@ -132,11 +129,11 @@ int covan_init( int columns ) {
  *    feature (something we would prefer NOT happen).
  *
  * Analyses:
- * 1. both numeric            => Spearman correlation
- * 2. one numeric, one cat.   => 1-way ANOVA (or Kruskal-Wallis)
- * 3. both categorical        => contingency table of some kind
- *    3a. both boolean        => Fisher exact
- *    3b. at least one n-ary  => Chi-square
+ * 1. both continuous          => Spearman correlation
+ * 2. one continuous, one cat. => 1-way ANOVA (or Kruskal-Wallis)
+ * 3. both categorical         => contingency table of some kind
+ *    3a. both boolean         => Fisher exact
+ *    3b. at least one n-ary   => Chi-square
  * 4. Check for statistical difference between each feature segregated
  *    into two groups according to the NA state of its covariate.
  * 5. An "auxiliary" Spearman rho is always computed unless one of 
@@ -195,8 +192,8 @@ int covan_exec(
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
 
-	_Lwaste.clear( 2 ); // Secondary analyses ALWAYS involve...
-	_Rwaste.clear( 2 ); // ...only categories {0,1}.
+	mix_clear( _Lwaste, 2 ); // Secondary analyses ALWAYS involve...
+	mix_clear( _Rwaste, 2 ); // ...only categories {0,1}.
 
 	// No matter what tests are executed there are only three fundamental
 	// cases:
@@ -209,39 +206,39 @@ int covan_exec(
 
 		if( covan->stat_class.left == MTM_STATCLASS_CONTINUOUS ) {
 
-			_naccum.clear();
+			con_clear( _naccum );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const float F1
-					= reinterpret_cast<const float*>(pair->l.data)[i];
+					= ((const float*)pair->l.data)[i];
 				const float F2
-					= reinterpret_cast<const float*>(pair->r.data)[i];
+					= ((const float*)pair->r.data)[i];
 
-				if( _present(F1) ) {
-					if( _present(F2) ) {
-						_naccum.push( F1, F2 );
-						_Lwaste.push( F1, 1 );
-						_Rwaste.push( F2, 1 );
+				if( ! isnan(F1) ) {
+					if( ! isnan(F2) ) {
+						con_push( _naccum, F1, F2 );
+						mix_push( _Lwaste, F1, 1 );
+						mix_push( _Rwaste, F2, 1 );
 					} else {
-						_Lwaste.push( F1, 0 );
+						mix_push( _Lwaste, F1, 0 );
 						unused1++;
 					}
 				} else { // F1 is N/A
-					if( _present(F2) ) {
-						_Rwaste.push( F2, 0 );
+					if( ! isnan(F2) ) {
+						mix_push( _Rwaste, F2, 0 );
 						unused2++;
 					}
 				}
 			}
 
-			count = _naccum.size();
+			count = con_size( _naccum );
 
-			if( not _naccum.complete() ) {
+			if( ! con_complete( _naccum ) ) {
 				covan->status |= COVAN_E_COVAR_DEGEN;
 			} else
 			if( count >= arg_min_sample_count ) {
-				_naccum.spearman_correlation( &covan->result );
+				con_spearman_correlation( _naccum, &covan->result );
 				// TODO: Following line won't be necessary after output formatting is re-implemented for V2.0.
 				covan->sign = covan->result.value;
 			} else
@@ -251,7 +248,7 @@ int covan_exec(
 
 			assert( covan->stat_class.left == MTM_STATCLASS_CATEGORICAL );
 
-			_caccum.clear( C1, C2 );
+			cat_clear( _caccum, C1, C2 );
 
 			// Note that cardinality of univariate features says NOTHING about 
 			// the final table after pairs with NA's are removed; it could be
@@ -266,35 +263,35 @@ int covan_exec(
 
 				// Notice: Though we can't (currently) statistically compare the
 				// within-feature discrepancy in CC case as in case involving a
-				// numeric variable, I nonetheless use the output structs to
+				// continuous variable, I nonetheless use the output structs to
 				// at least count the number of wasted samples in each feature.
 
-				if( _present(F1) ) {
-					if( _present(F2) ) {
-						_caccum.push( F1, F2 );
+				if( NAN_AS_UINT != F1 ) {
+					if( NAN_AS_UINT != F2 ) {
+						cat_push( _caccum, F1, F2 );
 					} else { 
 						unused1++;
 					}
 				} else { // F1 is N/A
-					if( _present(F2) ) {
+					if( NAN_AS_UINT != F2 ) {
 						unused2++;
 					}
 				}
 			}
 
-			count = _caccum.size();
+			count = cat_size( _caccum );
 
-			if( not _caccum.complete() ) {
+			if( ! cat_complete( _caccum ) ) {
 				covan->status |= COVAN_E_COVAR_DEGEN;
 			} else {
-				_caccum.cullBadCells( covan->result.log, MAXLEN_STATRESULT_LOG );
+				cat_cullBadCells( _caccum, covan->result.log, MAXLEN_STATRESULT_LOG );
 				// ...cullBadCells won't allow the table to become degenerate. 
 				if( count >= arg_min_sample_count ) {
-					if( _caccum.is2x2() ) {
-						_caccum.fisher_exact( &covan->result );
-						covan->sign = _caccum.spearman_rho();
+					if( cat_is2x2( _caccum ) ) {
+						cat_fisher_exact( _caccum, &covan->result );
+						covan->sign = cat_spearman_rho( _caccum );
 					} else {
-						_caccum.chi_square( &covan->result );
+						cat_chi_square( _caccum, &covan->result );
 					}
 				} else
 					covan->status |= COVAN_E_SAMPLES_SIZE;
@@ -307,25 +304,25 @@ int covan_exec(
 
 			assert( covan->stat_class.right == MTM_STATCLASS_CONTINUOUS );
 
-			_maccum.clear( C1 );
+			mix_clear( _maccum, C1 );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const unsigned int F1 
 					= pair->l.data[i];
 				const float F2 
-					= reinterpret_cast<const float*>(pair->r.data)[i];
+					= ((const float*)pair->r.data)[i];
 
-				if( _present(F2) ) {
-					if( _present(F1) ) {
-						_maccum.push( F2, F1 );
-						_Rwaste.push( F2, 1 );
+				if( ! isnan(F2) ) {
+					if( NAN_AS_UINT != F1 ) {
+						mix_push( _maccum, F2, F1 );
+						mix_push( _Rwaste, F2, 1 );
 					} else {
-						_Rwaste.push( F2, 0 );
+						mix_push( _Rwaste, F2, 0 );
 						unused2++;
 					}
 				} else { // F2 is N/A
-					if( _present(F1) ) {
+					if( NAN_AS_UINT != F1 ) {
 						unused1++;
 					}
 				}
@@ -336,40 +333,40 @@ int covan_exec(
 			assert( covan->stat_class.left == MTM_STATCLASS_CONTINUOUS && 
 					covan->stat_class.right == MTM_STATCLASS_CATEGORICAL );
 
-			_maccum.clear( C2 );
+			mix_clear( _maccum, C2 );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const float F1 
-					= reinterpret_cast<const unsigned int*>(pair->l.data)[i];
+					= ((const unsigned int*)pair->l.data)[i];
 				const unsigned int F2 
 					= pair->r.data[i];
 
-				if( _present(F1) ) {
-					if( _present(F2) ) {
-						_maccum.push( F1, F2 );
-						_Lwaste.push( F1, 1 );
+				if( ! isnan(F1) ) {
+					if( NAN_AS_UINT != F2 ) {
+						mix_push( _maccum, F1, F2 );
+						mix_push( _Lwaste, F1, 1 );
 					} else {
-						_Lwaste.push( F1, 0 );
+						mix_push( _Lwaste, F1, 0 );
 						unused1++;
 					}
 				} else { // F1 is N/A
-					if( _present(F2) ) {
+					if( NAN_AS_UINT != F2 ) {
 						unused2++;
 					}
 				}
 			}
 		}
 
-		count = _maccum.size();
+		count = mix_size( _maccum );
 
-		if( not _maccum.complete() ) {
+		if( ! mix_complete( _maccum ) ) {
 			covan->status |= COVAN_E_COVAR_DEGEN;
 		} else
 		if( count >= arg_min_sample_count ) {
-			_maccum.kruskal_wallis( &covan->result );
-			if( _maccum.categoricalIsBinary() )
-				covan->sign = _maccum.spearman_rho();
+			mix_kruskal_wallis( _maccum, &covan->result );
+			if( mix_categoricalIsBinary( _maccum ) )
+				covan->sign = mix_spearman_rho( _maccum );
 		} else
 			covan->status |= COVAN_E_SAMPLES_SIZE;
 	}
@@ -388,11 +385,11 @@ int covan_exec(
 	// Characterize how the unused parts of the two samples might have
 	// affected the statistics computed on their "overlap".
 
-	if( _Lwaste.complete() )
-		_Lwaste.kruskal_wallis( &(covan->waste[0].result) );
+	if( mix_complete( _Lwaste ) )
+		mix_kruskal_wallis( _Lwaste, &(covan->waste[0].result) );
 
-	if( _Rwaste.complete() )
-		_Rwaste.kruskal_wallis( &(covan->waste[1].result) );
+	if( mix_complete( _Rwaste ) )
+		mix_kruskal_wallis( _Rwaste, &(covan->waste[1].result) );
 
 	return covan->status ? -1 : 0;
 }

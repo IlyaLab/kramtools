@@ -56,6 +56,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <err.h>
+#include <alloca.h>
 
 #include <gsl/gsl_errno.h>
 

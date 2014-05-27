@@ -1,7 +1,8 @@
+
 #ifdef _UNITTEST_BVR_
+#include "bvr.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "bvr.h"
 int main( int argc, char *argv[] ) {
 	const int M = argc > 1 ? atoi(argv[1]) : 1;
 	const int N = argc > 2 ? atoi(argv[2]) : 1;

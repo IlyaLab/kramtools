@@ -2,134 +2,33 @@
 #ifndef _mix_h_
 #define _mix_h_
 
-#include <vector>
-#include <utility>
+void mix_destroy( void *pv );
+void *mix_create( unsigned int sample_capacity, unsigned int category_capacity );
+
+void mix_clear( void *pv, unsigned cap );
+void mix_push(  void *pv, float num, unsigned int cat );
+size_t mix_size( void *pv );
+bool mix_complete( void *pv );
+
+
+bool mix_degenerate( void *pv );
+bool mix_categoricalIsBinary( void *pv );
 
 /**
- * This class encapsulates statistics and helper methods for heterogeneous
- * data types meaning combinations of numeric/continuous and 
- * ordinal/categorical.
+ * Available statistics
+ * Reordering of data is a side affect of kruskal_wallis
+ * and mann_whitney.
  */
-class MixCovars {
-#if defined(_DEBUG) || defined(_UNITTEST_MIX_)
-	friend std::ostream& operator<<( std::ostream&, const MixCovars& );
-#endif
-	typedef std::pair<float,unsigned int> covars_t;
-	typedef std::vector< covars_t > paired_samples_t;
-
-	paired_samples_t samples;
-
-	/**
-	  * All category labels pushed into this accumulator must
-	  * be in [0,CATEGORY_CAPACITY).
-	 */ 
-	const unsigned int CATEGORY_CAPACITY;
-
-	/**
-	  * This essentially bounds the allowed category LABELS. Any
-	  * category label push'ed in must be in [0,expected_categories).
-	  * ONLY THIS MEMBER SHOULD BE USED TO SIZE COUNTS ARRAYS!
-	  */
-	unsigned int expected_categories;
-
-	/**
-	  * This is an actual count of distinct labels OBSERVED by push.
-	  */
-	unsigned int observed_categories;
-
-	/**
-	  * A buffer allocated once in construction and reused for 
-	  * all subsequent analyses. Reallocation is not currently
-	  * supported.
-	  */
-	unsigned int *category_count;
-	double       meanRank;     // necessarily of both covariates
-	double       sum_sq_dev;   // used for Kruskal-Wallis and Spearman
-
-	/**
-	  * Following struct array is ONLY for Spearman rho calculation.
-	  * Note that the number of non-empty categories after data entry
-	  * says NOTHING about WHICH categories (indices) are non-zero.
-	  * An earlier implementation was assuming category_count[0,1] > 0,
-	  * BUT THIS NEED NOT BE TRUE! Thus, all this hack...
-	  */
-	struct {
-		unsigned int index;
-		unsigned int count;
-		unsigned int meanRank;
-	} edge[2];
-	double sum_dev_prod; // used only for Spearman-rho
-
-	/**
-	  * Find the minimum and maximum non-empty categories.
-	  */
-	unsigned minCat() const;
-	unsigned maxCat() const;
-	unsigned int rank_sums( double *sums );
-
-	MixCovars( const MixCovars& rhs );
-	// copy construction illegal...to expensive, no need.
-
-public:
-	explicit MixCovars( unsigned int cap );
-	~MixCovars();
-
-	/**
-	 * Semantics of this class follow those of vector, so
-	 * clear removes elements without changing the (reserved) capacity.
-	 */
-	void reserve( unsigned int );
-	void clear( unsigned cap );
-	bool complete();
-
-	inline void push( float num, unsigned int );
-	inline size_t size() const;
-
-	inline bool degenerate() const;
-	inline bool categoricalIsBinary() const;
-
-	/**
-	 * Available statistics
-	 * Reordering of data is a side affect of kruskal_wallis
-	 * and mann_whitney.
-	 */
-	int kruskal_wallis( struct Statistic * );
+int mix_kruskal_wallis( void *pv, struct Statistic * );
 #ifdef HAVE_MANN_WHITNEY
-	int mann_whitney( struct Statistic * );
+int mix_mann_whitney( void *pv, struct Statistic * );
 #endif
-	/**
-	  * This MUST be called AFTER kruskal_wallis or mann_whitney.
-	  * ...at least as things are coded now.
-	  */
-	double spearman_rho() const;
-};
 
-
-void MixCovars::push( float num, unsigned int cat ) {
-
-	assert( cat < expected_categories );
-
-	if( 0 == category_count[ cat ] ) observed_categories++;
-
-	category_count[ cat ] += 1;
-
-	// Not updating edges in here because the number of conditionals
-	// executed for sample counts > 32 exceeds the work to find the
-	// edges post-sample accumulation.
-	samples.push_back( covars_t( num, cat ) );
-}
-
-size_t MixCovars::size() const {
-	return samples.size();
-}
-
-bool MixCovars::degenerate() const {
-	return observed_categories < 2 or size() < 2;
-}
-
-bool MixCovars::categoricalIsBinary() const {
-	return observed_categories == 2;
-}
+/**
+  * This MUST be called AFTER kruskal_wallis or mann_whitney.
+  * ...at least as things are coded now.
+  */
+double mix_spearman_rho( void *pv );
 
 #endif
 
