@@ -52,8 +52,7 @@ EXECUTABLES=$(VERSIONED_EXECUTABLE)
 UNITTESTS=ut_mix \
 	ut_cat \
 	ut_num \
-	ut_bvr \
-	ut_dsp
+	ut_bvr
 
 ############################################################################
 # Compilation options
@@ -65,6 +64,7 @@ else
 CFLAGS+=-O3 -DNDEBUG
 endif
 
+CFLAGS+=-std=c99 
 CFLAGS+=-I$(SRCLIB)
 CFLAGS+=-I$(GSLINC)
 CFLAGS+=-I../../mtm/src
@@ -92,12 +92,9 @@ usage_short.c : usage_short.txt
 	sed -f usage.sed $< > $@
 
 $(VERSIONED_EXECUTABLE) : $(SOURCES) analysis.c cat.c mix.c num.c usage_full.c usage_short.c
-	$(CC) -o $@ -std=c99 -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
+	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
 
 # Following target will be eliminated away as soon as gratuitous C++ purged.
-
-pairwise-cpp : $(SOURCES) analysis.cpp cat.cpp mix.cpp num.cpp usage_full.c usage_short.c
-	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
 
 unittests : $(UNITTESTS)
 
@@ -108,13 +105,13 @@ ut_bvr : bvr.c
 	$(CC) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_BVR_ $^
 
 ut_mix : mix.c
-	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_MIX_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
+	$(CC) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_MIX_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
 ut_cat : cat.c $(addprefix $(SRCLIB)/,fisher.c min2.c)
-	$(CXX) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_CAT_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
+	$(CC) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_CAT_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
 ut_num : num.c fp.c $(addprefix $(SRCLIB)/,rank.c)
-	$(CXX) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
+	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNITTEST_NUM_ $^ $(LDFLAGS) -lgslcblas -lgsl -lm
 
 ut_varfmt : varfmt.c
 	$(CC) -o $@ -g -O0 $(CFLAGS) -D_UNIT_TEST_VARFMT $^ -lm

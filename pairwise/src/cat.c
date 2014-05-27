@@ -1,8 +1,4 @@
 
-#ifdef _UNITTEST_CAT_
-#include <iostream>
-#else
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -755,74 +751,80 @@ double cat_spearman_rho( void *pv ) {
 
 #ifdef _UNITTEST_CAT_
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <err.h>
 
 int main( int argc, char *argv[] ) {
 
-	if( argc > 2 ) {
+	if( argc >= 3 ) {
 
 		const int MERGE_LOG_LEN = 128;
 		char merge_log[ MERGE_LOG_LEN ]; 
+
+		struct Statistic result;
 
 		const unsigned int MAXROW
 			= atoi(argv[1]);
 		const unsigned int MAXCOL
 			= atoi(argv[2]);
 
-		char *line = NULL;
-		size_t n = 0;
 		FILE *fp 
 			= argc > 3
 			? fopen( argv[3], "r" )
 			: stdin;
-		int err = 0;
 
-		void *table = cat_create(2*MAXROW,2*MAXCOL); // ...arbitrarily.
-		cat_setMinCellCount( table, 5 );
-		cat_clear( table, MAXROW, MAXCOL );   // ...as per command line.
+		int err = 0;
+		char *line = NULL;
+		size_t n = 0;
+
+		void *accum
+			= cat_create( MAXROW, MAXCOL);
+
+		cat_setMinCellCount( accum, 5 );
+		cat_clear( accum, MAXROW, MAXCOL );   // ...as per command line.
 
 		while( getline( &line, &n, fp ) > 0 ) {
 			int cat[2];
 			if( line[0] == '#' ) {
-				cout << line;
+				fputs( line, stdout );
 				continue;
 			}
 			if( 2 == sscanf( line, "%d\t%d\n", cat+0, cat+1 ) ) {
 				if( 0 <= cat[0] && 0 <= cat[1] ) {
-					cat_push( table, cat[0], cat[1] );
+					cat_push( accum, cat[0], cat[1] );
 				}
 			} else {
-				cerr << "Failure parsing line: " << line << endl;
+				fprintf( stderr, "Failure parsing line: %s", line );
 			}
 		}
 		free( line );
 		fclose( fp );
 
-		cout << "Original..." << endl;
-		cout << table;
+		puts( "Original..." );
+		dbg_dump( accum, stdout );
 
-		if( cat_cullBadCells( table, merge_log, MERGE_LOG_LEN ) > 0 ) {
-			cout << "Culled " << merge_log << ", leaving..." << endl;
-			cout << table;
+		if( cat_cullBadCells( accum, merge_log, MERGE_LOG_LEN ) > 0 ) {
+			fprintf( stdout, "Culled %s, leaving...\n", merge_log );
+			dbg_dump( accum, stdout );
 		}
 
-		err = ->cat_is2x2( table )
-			? cat_fisher_exact( table, &common, &fisherx )
-			: cat_chi_square( table, &common, &chisq );
+		memset( &result, 0, sizeof(struct Statistic) );
+		err = cat_is2x2( accum )
+			? cat_fisher_exact( accum, &result )
+			: cat_chi_square( accum, &result );
 
 		if( ! err ) {
-			if( cat_is2x2( table ) )
-				printf( "p-value=%f, spearman=%f\n", common.P, cat_spearman_rho( table ) );
+			printf( "p-value=%f", result.probability );
+			if( cat_is2x2( accum ) )
+				printf( ", spearman=%f\n", cat_spearman_rho( accum ) );
 			else
-				printf( "p-value=%f\n", common.P );
+				fputc( '\n', stdout );
 		} else
 			printf( "error\n" );
 
-		cat_destroy( table );
+		cat_destroy( accum );
 
 	} else
-		fprintf( stderr, "%s <max row> <max col> [ <2-column file> ]\n", argv[0] );
+		err( -1, "%s <max row> <max col> [ <2-column file> ]", argv[0] );
 	return 0;
 }
 #endif

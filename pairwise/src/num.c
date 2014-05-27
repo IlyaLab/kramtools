@@ -93,7 +93,6 @@ void con_clear( void *pv ) {
 	struct ConCovars *co = (struct ConCovars *)pv;
 	co->sample_count = 0;
 	memset( co->l, 0, co->SIZEOF_BUFFERS );
-	// TODO: Clear rank_scratch?
 }
 
 
@@ -201,44 +200,54 @@ int con_pearson_correlation( void *pv, struct Statistic *result ) {
  * cat( sprintf( "# K=%f p-value=%f\n", k$statistic, k$p.value ), file="foo.tab" );
  * write.table( x, 'foo.tab', quote=F, sep='\t', row.names=F, col.names=F, append=TRUE );
  */
-
-#include <iostream>
+#include <err.h>
 
 int main( int argc, char *argv[] ) {
 
-	struct CommonStats common;
-	struct SpearmanStats sp;
-	NumCovars cv;
-	double statistic;
-	char *line = NULL;
-	size_t n = 0;
-	FILE *fp 
-		= argc > 1
-		? fopen( argv[1], "r" )
-		: stdin;
-	while( getline( &line, &n, fp ) > 0 ) {
-		float l, r;
-		if( line[0] == '#' ) {
-			cout << line;
-			continue;
-		}
-		if( 2 == sscanf( line, "%f\t%f\n", &l, &r ) ) {
-			cv.push( l, r );
-		} else {
-			cerr << "Failure parsing line: " << line << endl;
-		}
-	}
-	free( line );
-	fclose( fp );
+	if( argc >= 2 ) {
 
+		struct Statistic result;
+		struct ConCovars *accum
+			= con_create( atoi(argv[1]) );
+		FILE *fp 
+			= argc > 2
+			? fopen( argv[2], "r" )
+			: stdin;
+		char *line = NULL;
+		size_t n = 0;
+
+		con_clear( accum );
+
+		while( getline( &line, &n, fp ) > 0 ) {
+			float l, r;
+			if( line[0] == '#' ) {
+				fputs( line, stdout );
+				continue;
+			}
+			if( 2 == sscanf( line, "%f\t%f\n", &l, &r ) ) {
+				con_push( accum, l, r );
+			} else {
+				fprintf( stderr, "Failure parsing line: %s", line );
+			}
+		}
+		free( line );
+		fclose( fp );
+
+		memset( &result, 0, sizeof(struct Statistic) );
 #ifdef HAVE_SCALAR_PEARSON
-	statistic = cv.pearson_correlation( &qp );
-	printf( "pearson=%f\n", statistic );
+		con_pearson_correlation( accum, &result );
+		printf( "pearson=%f\n", result.value );
 #endif
-	if( cv.spearman_correlation( &common, &sp ) == 0 ) {
-		printf( "p-value=%f, spearman=%f\n", common.P, sp.rho );
+		memset( &result, 0, sizeof(struct Statistic) );
+		if( con_spearman_correlation( accum, &result ) == 0 ) {
+			printf( "p-value=%f, spearman=%f\n", result.probability, result.value );
+		} else
+			printf( "error\n" );
+
+		con_destroy( accum );
+
 	} else
-		printf( "error\n" );
+		err( -1, "%s <sample count> [ <input file> ]", argv[0] );
 
 	return 0;
 }

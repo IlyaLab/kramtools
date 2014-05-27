@@ -111,19 +111,13 @@ struct MixCovars {
 	  * Reallocation is not currently supported.
 	  */
 	unsigned int *category_count;
-
 };
 
 
 #ifdef _UNITTEST_MIX_
 unsigned arg_min_mixb_count = 1;
-void panic( const char *src, int line ) {
-	fprintf( stderr, "panic on %s:%d", src, line );
-	abort();
-}
 #else
-unsigned arg_min_mixb_count;
-void panic( const char *src, int line );
+extern unsigned arg_min_mixb_count;
 #endif
 
 /**
@@ -137,7 +131,6 @@ static unsigned _minCat( struct MixCovars *co ) {
 			return i;
 		i++;
 	}
-	panic( __FILE__, __LINE__ );
 	return INT_MAX; // just to silence compiler.
 }
 
@@ -149,7 +142,6 @@ static unsigned _maxCat( struct MixCovars *co ) {
 		if( co->category_count[i] > 0 ) 
 			return (unsigned int)i;
 	}
-	panic( __FILE__, __LINE__ );
 	return INT_MAX; // just to silence compiler
 }
 
@@ -388,7 +380,7 @@ bool mix_categoricalIsBinary( void *pv ) {
  * Calculates the Kruskal-Wallis statistic and optionally a p-value.
  * Importantly, it does it in a one pass iteration over the data.
  */
-int mix_kruskal_wallis( void *pv, struct Statistic *result/*struct CommonStats *cs, struct KruskalWallisStats *ks*/ ) {
+int mix_kruskal_wallis( void *pv, struct Statistic *result ) {
 
 	struct MixCovars *co = (struct MixCovars *)pv;
 	const unsigned int N 
@@ -514,54 +506,64 @@ double mix_spearman_rho( void *pv ) {
  * cat( sprintf( "# K=%f p-value=%f\n", k$statistic, k$p.value ), file="foo.tab" );
  * write.table( x, 'foo.tab', quote=F, sep='\t', row.names=F, col.names=F, append=TRUE );
  */
+#include <err.h>
 
 int main( int argc, char *argv[] ) {
 
-	struct Statistic result;
-	MixCovars *co
-	   = mix_create( 100 /* TODO */, MAX_CATEGORY_COUNT );
-	char *line = NULL;
-	size_t n = 0;
-	FILE *fp 
-		= argc > 1
-		? fopen( argv[1], "r" )
-		: stdin;
-	while( getline( &line, &n, fp ) > 0 ) {
-		unsigned int cat;
-		float        num;
-		if( line[0] == '#' ) {
-			cout << line;
-			continue;
-		}
-		if( 2 == sscanf( line, "%d\t%f\n", &cat, &num ) ) {
-			accum.push( num, cat );
-		} else {
-			cerr << "Failure parsing line: " << line << endl;
-		}
-	}
-	free( line );
-	fclose( fp );
+	if( argc >= 3 ) {
 
-	// Always calculate Kruskal-Wallis since it's valid for any groups
-	// count >= 2...
-	
-	if( accum.kruskal_wallis( &common, &kw ) == 0 ) {
-		if( accum.categoricalIsBinary() ) {
-			printf( "K=%f, p-value=%f, spearman=%f\n", kw.K, common.P, accum.spearman_rho() );
-		} else {
-			printf( "K=%f, p-value=%f\n", kw.K, common.P );
+		struct Statistic result;
+		const int EXPCAT
+			= atoi( argv[1] );
+		struct MixCovars *accum
+		   = mix_create( atoi( argv[2] ), MAX_CATEGORY_COUNT );
+		FILE *fp 
+			= argc > 3
+			? fopen( argv[3], "r" )
+			: stdin;
+		char *line = NULL;
+		size_t n = 0;
+
+		mix_clear( accum, EXPCAT );
+
+		while( getline( &line, &n, fp ) > 0 ) {
+			unsigned int cat;
+			float        num;
+			if( line[0] == '#' ) {
+				fputs( line, stdout );
+				continue;
+			}
+			if( 2 == sscanf( line, "%d\t%f\n", &cat, &num ) ) {
+				mix_push( accum, num, cat );
+			} else {
+				fprintf( stderr, "Failure parsing line: %s", line );
+			}
 		}
-	} else {
-		printf( "error\n" );
-	}
+		free( line );
+		fclose( fp );
+
+		// Always calculate Kruskal-Wallis since it's valid for any groups
+		// count >= 2...
+
+		memset( &result, 0, sizeof(struct Statistic) );
+		if( mix_kruskal_wallis( accum, &result ) == 0 ) {
+			printf( "K=%f, p-value=%f", result.value, result.probability );
+			if( mix_categoricalIsBinary( accum ) )
+				printf( ", spearman=%f\n", mix_spearman_rho(accum) );
+			else
+				fputc( '\n', stdout );
+		} else {
+			printf( "error\n" );
+		}
 
 #ifdef HAVE_MANN_WHITNEY
-	// Do a Mann-Whitney, too, if there are only 2 groups.
-	if( accum.categoricalIsBinary() == 2 ) {
-		double statistic = cv.mann_whitney_U( &qp );
-		printf( "U=%f, p-value=%f (%d ties)\n", statistic, 2.0*qp.prob, qp.kruskal_test.ties );
-	}
+		// Do a Mann-Whitney, too, if there are only 2 groups.
+		if( mix_categoricalIsBinary(accum) == 2 ) {
+		}
 #endif
+		mix_destroy( accum );
+	} else
+		err( -1, "%s <categories> <sample count> [ <input file> ]", argv[0] );
 	return 0;
 }
 #endif
