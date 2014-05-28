@@ -545,15 +545,17 @@ int main( int argc, char *argv[] ) {
 		// Always calculate Kruskal-Wallis since it's valid for any groups
 		// count >= 2...
 
-		memset( &result, 0, sizeof(struct Statistic) );
-		if( mix_kruskal_wallis( accum, &result ) == 0 ) {
-			printf( "K=%f, p-value=%f", result.value, result.probability );
-			if( mix_categoricalIsBinary( accum ) )
-				printf( ", spearman=%f\n", mix_spearman_rho(accum) );
-			else
-				fputc( '\n', stdout );
-		} else {
-			printf( "error\n" );
+		if( mix_complete( accum ) ) {
+			memset( &result, 0, sizeof(struct Statistic) );
+			if( mix_kruskal_wallis( accum, &result ) == 0 ) {
+				printf( "K=%f, p-value=%f", result.value, result.probability );
+				if( mix_categoricalIsBinary( accum ) )
+					printf( ", spearman=%f\n", mix_spearman_rho(accum) );
+				else
+					fputc( '\n', stdout );
+			} else {
+				printf( "error\n" );
+			}
 		}
 
 #ifdef HAVE_MANN_WHITNEY
