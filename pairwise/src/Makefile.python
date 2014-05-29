@@ -66,15 +66,18 @@ EXECUTABLES=pairwise.so
 ############################################################################
 
 CFLAGS+=-D_BUILD_PYTHON_BINDING=1
-
-CFLAGS+=-I$(SRCLIB)
-CFLAGS+=-I$(GSLINC)
-CFLAGS+=-I$(PYTHON_INC)
-CFLAGS+=-I../../mtm/src
+CFLAGS+=-std=c99
+CFLAGS+=-I$(SRCLIB) \
+		-I$(GSLINC) \
+		-I$(PYTHON_INC) \
+		-I../../mtm/src
 
 # Following for Python extension build.
-CFLAGS+=-pthread -static -fno-strict-aliasing -fwrapv -fPIC 
-# SHOULD also include -Wstrict-prototypes, but gcc complains re C++.
+CFLAGS+=-pthread -static \
+	-Wstrict-prototypes \
+	-fno-strict-aliasing \
+	-fwrapv \
+	-fPIC 
 
 ifdef DEBUG
 CFLAGS+=-O0 -g -D_DEBUG -Wall
@@ -82,28 +85,21 @@ else
 CFLAGS+=-O3 -DNDEBUG
 endif
 
-LDFLAGS+=-L$(LIBDIR)
+LDFLAGS+=-L$(LIBDIR) -Wl,-Bstatic -lgslcblas -lgsl -lmtm -Wl,-Bdynamic -lm
 
 ############################################################################
 # Primary
 
 all : $(EXECUTABLES)
 
-
-%.o : %.cpp
-	g++ -c -o $@ $(CFLAGS) $^ /home/rkramer/lib/libmtm.a $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm 
-
 %.o : %.c
-	$(CC) -c -o $@ $(CFLAGS) $^ /home/rkramer/lib/libmtm.a $(LDFLAGS) -lgslcblas -lgsl -lm 
+	$(CC) -c -o $@ $(CFLAGS) $^
 
 pairwise.so : $(OBJECTS)
-	g++ -o $@  -shared -pthread -fno-strict-aliasing -fwrapv -fPIC  $^ 
-
-#pairwise.so : $(SOURCES)
-#	$(CC) -o $@ $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lstdc++ -lm -lmtm
+	$(CC) -o $@  -shared -pthread -fno-strict-aliasing -fwrapv -fPIC  $^ $(LDFLAGS)
 
 clean :
-	rm -rf $(EXECUTABLES) 
+	rm -rf $(EXECUTABLES) *.o $$(find . ../../lib -name "*.o")
 
-.PHONY : clean archive
+.PHONY : clean
 

@@ -11,10 +11,13 @@ HAVE_MD5=
 
 ############################################################################
 
+LDFLAGS=-lm
+
 ifdef DEBUG
 CFLAGS+=-O0 -g -D_DEBUG -Wall
 else
 CFLAGS+=-O3 -DNDEBUG
+LDFLAGS+=-Wl,-s
 endif
 
 SRCLIB=../../lib/c
@@ -44,8 +47,11 @@ OBJECTS=$(addsuffix .o,$(basename $(SOURCES)))
 
 all : mtproc install
 
-libmtm.so : $(SOURCES)
-	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ -lm
+%.o : %.c
+	$(CC) -c -o $@  -fPIC $(CFLAGS) $^
+
+libmtm.so : $(OBJECTS)
+	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
 
 libmtm.a : $(OBJECTS)
 	ar rcs $@ $^ 

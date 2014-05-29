@@ -134,9 +134,11 @@ static bool     opt_warnings_are_fatal = false;
   */
 #define V_INFO      (3)
 
-static int         opt_verbosity       = V_ESSENTIAL;
+static int opt_verbosity = V_ESSENTIAL;
 
+#ifdef HAVE_MAGIC_SUFFIX
 static bool  opt_running_as_webservice = false;
+#endif
 #endif
 
 static FILE *_fp_output = NULL;
@@ -156,7 +158,13 @@ static double      opt_p_value         = 1.0;
 
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
-static unsigned opt_status_mask        = COVAN_E_MASK;
+static unsigned opt_status_mask
+#ifdef _BUILD_PYTHON_BINDING
+	= 0; // Preclude ALL filtering of results to guarantee |rows|-choose-2
+		 // lines in the output file.
+#else
+	= COVAN_E_MASK;
+#endif
 
 /**
   * This is used simply to preclude bloating the FDR cache with results
@@ -229,7 +237,7 @@ static void _interrupt( int n ) {
 }
 
 
-static void _freeMatrix() {
+static void _freeMatrix( void ) {
 	_matrix.destroy( &_matrix );
 }
 
@@ -276,7 +284,7 @@ static void _filter( ANALYSIS_FN_SIG ) {
 	// One last thing to check before filtering to insure corner cases
 	// don't fall through the following conditionals....
 
-	if( ! isfinite( covan.result.probability ) ) {
+	if( ! ( isfinite( covan.result.probability ) && fpclassify( covan.result.probability ) != FP_SUBNORMAL ) ) {
 		covan.result.probability = 1.0;
 		covan.status             = COVAN_E_MATH;
 	}
@@ -290,7 +298,8 @@ static void _filter( ANALYSIS_FN_SIG ) {
 				_emit( pair, &covan, _fp_output );
 			else
 				_filtered += 1;
-		}
+		} else
+			abort();
 
 #ifdef _DEBUG
 	}	
@@ -691,7 +700,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
   * In particular, I set up lots of ptrs below to obviate
   * redundant pointer arithmetic--only do fixed additions.
   */
-static int /*AALL*/ _analyze_all_pairs() {
+static int /*AALL*/ _analyze_all_pairs( void ) {
 
 	struct feature_pair fpair;
 
@@ -835,7 +844,7 @@ static PyObject * _run( PyObject *self, PyObject *args ) {
 		  */
 
 		err	= mtm_parse( fp_input,
-				MTM_MATRIX_HAS_ROW_NAMES,
+				MTM_MATRIX_HAS_ROW_NAMES | MTM_MATRIX_HAS_HEADER,
 				mtm_default_NA_regex,
 				MAX_CATEGORY_COUNT,
 				mtm_sclass_by_prefix,
@@ -892,16 +901,14 @@ int main( int argc, char *argv[] ) {
 	 * under the TCGA web service.
 	 */
 
+#ifdef HAVE_MAGIC_SUFFIX
 	{
 		const char *ps
 			= strstr( argv[0], MAGIC_SUFFIX );
 		opt_running_as_webservice = ( NULL != ps )
 			&& strcmp(ps, MAGIC_SUFFIX) == 0; // it's really a suffix
-		if( opt_running_as_webservice ) {
-			opt_header     = false;
-			opt_row_labels = true;
-		}
 	}
+#endif
 
 	gsl_set_error_handler( _error_handler );
 
@@ -914,6 +921,7 @@ int main( int argc, char *argv[] ) {
 		exit( EXIT_SUCCESS );
 	}
 
+#ifdef HAVE_MAGIC_SUFFIX
 	/**
 	 * Running as a web service implies some changes to default arguments
 	 * ...and NOTHING else. For the purpose of minimizing testing paths,
@@ -922,11 +930,8 @@ int main( int argc, char *argv[] ) {
 	 */
 
 	if( opt_running_as_webservice ) {
-		// TODO: these need to be (re)defined.
-		opt_by_name        = true;
-		opt_verbosity      = V_ESSENTIAL;
-		opt_p_value        = 1.0; // implies NO filtering.
 	}
+#endif
 
 	do {
 
@@ -1302,15 +1307,13 @@ int main( int argc, char *argv[] ) {
 		}
 
 		fprintf( stderr,
-			"defaults for: %s\n"
 			"       input: %s\n"
 			"      select: %s\n"
 			"      output: %s\n"
 #ifdef _DEBUG
 			"       debug: silent: %s\n"
 #endif
-			,opt_running_as_webservice ? "web service" : "command line",
-			i_file,
+			,i_file,
 			feature_selection,
 			o_file
 #ifdef _DEBUG
@@ -1352,13 +1355,14 @@ int main( int argc, char *argv[] ) {
 		exit( EXIT_SUCCESS );
 	}
 
+#ifdef HAVE_MAGIC_SUFFIX
 	if( ! opt_running_as_webservice ) {
 		if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
 			warn( "failed installing interrupt handler\n"
 				"\tCtrl-C will terminated gracelessly\n" );
 		}
 	}
-
+#endif
 	/**
 	  * Choose and open, if necessary, an output stream.
 	  */
