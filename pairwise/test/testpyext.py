@@ -6,8 +6,6 @@ This script should
 """
 
 import sys
-import tempfile
-import io
 
 try:
 	import pairwise
@@ -26,11 +24,18 @@ VPHLQ	DXJZC	wirWa	UwQpz	DXJZC	wirWa	wirWa	hCKZA
 GDpjt	8.153e+08	-8.851e+08	8.493e+08	-5.547e+07	1.803e+08		9.815e+05	3.661e+08
 """
 
-# Write the dummy data above to a tmpfile.
-i = tempfile.TemporaryFile()
-i.write( _RANDOM_MATRIX )
-# ...then use it as input to pairwise.
-i.seek( 0, io.SEEK_SET )
+i = None
+if len(sys.argv) < 2:
+	# Write the dummy data above to a tmpfile.
+	import tempfile
+	import io
+	i = tempfile.TemporaryFile()
+	i.write( _RANDOM_MATRIX )
+	# ...then use it as input to pairwise.
+	i.seek( 0, io.SEEK_SET )
+else:
+	i = open( sys.argv[1] )
+
 pairwise.run( i, sys.stdout )
 i.close()
 
