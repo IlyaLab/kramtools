@@ -99,17 +99,15 @@ static void _coordsOfOffset(
 
 
 static count_t _count( struct CatCovars *co, coord_t r, coord_t c ) {
-	const int R = co->decl_rows;
 	const int C = co->decl_cols;
-	assert( r < R && c < C );
+	assert( r < co->decl_rows && c < C );
 	return co->counts[ r*C + c ];
 }
 
 
 static prob_t _expected( struct CatCovars *co, coord_t r, coord_t c ) {
-	const int R = co->decl_rows;
 	const int C = co->decl_cols;
-	assert( r < R && c < C );
+	assert( r < co->decl_rows && c < C );
 	return co->expect[ r*C + c ];
 }
 

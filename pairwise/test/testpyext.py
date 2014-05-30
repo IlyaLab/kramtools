@@ -2,7 +2,6 @@
 """
 This script merely tests that the Python extension pairwise.so
 is loadable and runnable.
-This script should 
 """
 
 import sys

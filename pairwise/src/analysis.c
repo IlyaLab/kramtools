@@ -74,18 +74,18 @@ static void *_naccum = NULL;
 static void *_Lwaste = NULL;
 static void *_Rwaste = NULL;
 
-static void _covan_fini() {
-
-	if( _Rwaste ) mix_destroy( _Rwaste );
-	if( _Lwaste ) mix_destroy( _Lwaste );
-	if( _naccum ) con_destroy( _naccum );
-	if( _maccum ) mix_destroy( _maccum );
-	if( _caccum ) cat_destroy( _caccum );
-}
-
 ////////////////////////////////////////////////////////////////////////////
 // Public API
 ////////////////////////////////////////////////////////////////////////////
+
+void covan_fini( void ) {
+
+	if( _Rwaste ) { mix_destroy( _Rwaste ); _Rwaste = NULL; }
+	if( _Lwaste ) { mix_destroy( _Lwaste ); _Lwaste = NULL; }
+	if( _naccum ) { con_destroy( _naccum ); _naccum = NULL; }
+	if( _maccum ) { mix_destroy( _maccum ); _maccum = NULL; }
+	if( _caccum ) { cat_destroy( _caccum ); _caccum = NULL; }
+}
 
 /**
  * This must pre-allocate all the memory we might need for every combination
@@ -104,9 +104,15 @@ int covan_init( int columns ) {
 
 	cat_setMinCellCount( _caccum, arg_min_cell_count );
 
-	atexit( _covan_fini );
+	// DON'T register covan_fini call here because Python extension
+	// will do explicit covan_fini; executable's main must register 
+	// covan_fini.
 
-	return 0;
+	return NULL == _caccum
+		|| NULL == _maccum 
+		|| NULL == _naccum
+		|| NULL == _Lwaste
+		|| NULL == _Rwaste ? -1 : 0;
 }
 
 

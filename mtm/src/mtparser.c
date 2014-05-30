@@ -110,7 +110,10 @@ static const char *BLOCK_NAMES[] = {
 
 static void _free_scratch( struct scratch *s ) {
 
-	szs_destroy( s->set );
+	// Must be tolerant of -incomplete- initialization!
+
+	if( s->set )
+		szs_destroy( s->set );
 
 	for(int i = 0; i < CACHE_COUNT; i++ ) {
 		if( s->cache[i] )

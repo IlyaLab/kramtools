@@ -126,7 +126,7 @@ archive : clean
 	rm -rf "./$(ARCHIVE_NAME)"
 
 clean :
-	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_*.c
+	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_*.c *.o $$(find . ../../lib -name "*.o")
 
 .PHONY : clean archive
 

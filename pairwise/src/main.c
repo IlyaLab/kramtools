@@ -38,6 +38,9 @@
 
 #ifdef _BUILD_PYTHON_BINDING
 #include <Python.h>
+#ifdef HAVE_LUA
+#error Python and Lua dependencies are mutually exclusive
+#endif
 #else
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,9 +76,11 @@
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#ifdef _BUILD_PYTHON_BINDING
+#error Python and Lua dependencies are mutually exclusive
+#endif
 #endif
 
-// TODO: LUA and Python are mutually exclusive.
 /***************************************************************************
  * externs
  */
@@ -83,22 +88,37 @@
 extern int mtm_sclass_by_prefix( const char *token );
 
 #ifndef _BUILD_PYTHON_BINDING
+
 extern int get_base10_ints( FILE *fp, int *index, int n );
 
 /***************************************************************************
  * Globals & statics
  */
 
-static const char *MAGIC_SUFFIX = "-www";
+static const char *MAGIC_SUFFIX         = "-www";
 static const char *MAGIC_FORMAT_ID_STD  = "std";
 static const char *MAGIC_FORMAT_ID_TCGA = "tcga";
 
-const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
-static FILE *_fp_cache  = NULL;
+static const char *TYPE_PARSER_INFER    = "auto";
 
-static const char *TYPE_PARSER_INFER   = "auto";
-static double arg_q_value              = 0.0;
+const char *AUTHOR_EMAIL = "rkramer@systemsbiology.org";
+
+/**
+  * False Discovery Rate control state.
+  */
+
+static double arg_q_value = 0.0;
 #define USE_FDR_CONTROL (arg_q_value > 0.0)
+
+/**
+  * This is used simply to preclude bloating the FDR cache with results
+  * that can't possibly be relevant to the final BH-calculated p-value
+  * threshold for FDR.
+  * I'm setting this high for safety since it's just an optimization, but
+  * it could probably be MUCH smaller.
+  */
+static double opt_fdr_cache_threshold = 0.5;
+
 
 // No default on opt_script because looking for a "default.lua" script
 // or any *.lua file invites all sorts of confusion with the defaults
@@ -139,49 +159,26 @@ static int opt_verbosity = V_ESSENTIAL;
 #ifdef HAVE_MAGIC_SUFFIX
 static bool  opt_running_as_webservice = false;
 #endif
-#endif
 
-static FILE *_fp_output = NULL;
-static void (*_emit)( EMITTER_SIG ) = format_tcga;
+#endif // not _BUILD_PYTHON_BINDING
+
+#ifdef _DEBUG
+static bool  dbg_silent               = false;
+#endif
 
 #define GLOBAL
 GLOBAL unsigned  arg_min_cell_count   = 5;
 GLOBAL unsigned  arg_min_mixb_count   = 1;
 GLOBAL unsigned  arg_min_sample_count = 2; // < 2 NEVER makes sense
-GLOBAL bool g_sigint_received         = false; // fdr.d needs access
 #undef  GLOBAL
 
-static const char *opt_na_regex        = NULL; // initialized in main
+static const char *opt_na_regex       = NULL; // must be initialized in main
 
-static double      opt_p_value         = 1.0;
-
+static double      opt_p_value        = 1.0;
 
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
-static unsigned opt_status_mask
-#ifdef _BUILD_PYTHON_BINDING
-	= 0; // Preclude ALL filtering of results to guarantee |rows|-choose-2
-		 // lines in the output file.
-#else
-	= COVAN_E_MASK;
-#endif
-
-/**
-  * This is used simply to preclude bloating the FDR cache with results
-  * that can't possibly be relevant to the final BH-calculated p-value
-  * threshold for FDR.
-  * I'm setting this high for safety since it's just an optimization, but
-  * it could probably be MUCH smaller.
-  */
-static double opt_fdr_cache_threshold  = 0.5;
-
-#ifdef _DEBUG
-/**
-  * Emit all results INCLUDING those with degeneracy.
-  */
-
-static bool  dbg_silent     = false;
-#endif
+static unsigned opt_status_mask       = COVAN_E_MASK;
 
 #ifdef HAVE_LUA
 static lua_State *_L = NULL;
@@ -207,6 +204,10 @@ static int _load_script( const char *source, lua_State *state ) {
 
 #endif
 
+static FILE *_fp_output = NULL;
+static void (*_emit)( EMITTER_SIG ) = format_tcga;
+
+static bool _sigint_received = false;
 
 /**
   * Records the number of pairwise tests COMPLETED WITHOUT ERROR
@@ -232,21 +233,13 @@ static unsigned _filtered = 0;
   */
 static struct mtm_matrix _matrix;
 
-static void _interrupt( int n ) {
-	g_sigint_received = true;
-}
-
-
 static void _freeMatrix( void ) {
 	_matrix.destroy( &_matrix );
 }
 
-
-void panic( const char *src, int line ) {
-	fprintf( stderr, "panic on %s:%d", src, line );
-	abort();
+static void _interrupt( int n ) {
+	_sigint_received = true;
 }
-
 
 /***************************************************************************
  * Pipeline
@@ -268,8 +261,6 @@ void panic( const char *src, int line ) {
 #define ANALYSIS_FN_SIG const struct feature_pair *pair
 
 typedef void (*ANALYSIS_FN)( ANALYSIS_FN_SIG );
-
-
 
 /***************************************************************************
  * Encapsulates all the decision making regarding actual emission of
@@ -308,7 +299,6 @@ static void _filter( ANALYSIS_FN_SIG ) {
 
 static ANALYSIS_FN _analyze = _filter;
 
-
 static void _error_handler(const char * reason,
                         const char * file,
                         int line,
@@ -321,6 +311,8 @@ static void _error_handler(const char * reason,
 
 
 #ifndef _BUILD_PYTHON_BINDING
+
+static FILE *_fdr_cache_fp = NULL;
 
 /***************************************************************************
   * FDR processing
@@ -390,7 +382,7 @@ static void _fdr_cache( ANALYSIS_FN_SIG ) {
 				.a = pair->l.offset,
 				.b = pair->r.offset
 			};
-			fwrite( &rec, sizeof(rec), 1, _fp_cache );
+			fwrite( &rec, sizeof(rec), 1, _fdr_cache_fp );
 		} else
 			_fdr_uncached_count += 1;
 	}
@@ -454,7 +446,7 @@ static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 
 		_emit( &fpair, &covan, final_output );
 
-		if( g_sigint_received ) {
+		if( _sigint_received ) {
 			time_t now = time(NULL);
 			fprintf( stderr, "# FDR postprocess interrupted @ %s", ctime(&now) );
 			break;
@@ -672,7 +664,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 			fputs( lua_tostring( _L, -1 ), stderr );
 		}
 
-		if( g_sigint_received ) {
+		if( _sigint_received ) {
 			time_t now = time(NULL);
 			fprintf( stderr, "analysis loop interrupted @ %s", ctime(&now) );
 			break;
@@ -684,7 +676,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 	return 0;
 }
 #endif
-#endif
+#endif // not _BUILD_PYTHON_BINDING
 
 /**
   * This clause serves the primary use case motivating this
@@ -702,6 +694,7 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
   */
 static int /*AALL*/ _analyze_all_pairs( void ) {
 
+	bool completed = true;
 	struct feature_pair fpair;
 
 	struct mtm_row_id *lrid, *rrid;
@@ -730,31 +723,44 @@ static int /*AALL*/ _analyze_all_pairs( void ) {
 
 			_analyze( &fpair );
 
-			if( g_sigint_received ) {
+			if( _sigint_received ) {
+#ifndef _BUILD_PYTHON_BINDING
 				time_t now = time(NULL);
 				fprintf( stderr, "# main analysis loop interrupted @ %s", ctime(&now) );
+#endif
+				completed = false;
 				break;
 			}
 
 			fpair.r.data += _matrix.columns;
-			if( rrid )  rrid += 1;
+			if( rrid ) rrid += 1;
 
 		} // inner for
 
 		fpair.l.data += _matrix.columns;
 		if( lrid ) lrid += 1;
 	}
-	return 0;
+	return completed ? 0 : -1;
 }
 
 // END:RSI
 
+/**
+  * Initializations for which static initialization can't/shouldn't 
+  * be relied upon. Common to executable and Python extension.
+  */
+static void _jit_initialization( void ) {
+	opt_na_regex = mtm_default_NA_regex;
+	memset( &_matrix,  0, sizeof(struct mtm_matrix) );
+	gsl_set_error_handler( _error_handler );
+}
+
+#ifndef _BUILD_PYTHON_BINDING
 
 /***************************************************************************
   * Online help
   */
 
-#ifndef _BUILD_PYTHON_BINDING
 static const char *_YN( bool y ) {
 	return y ? "yes" : "no";
 }
@@ -804,82 +810,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			opt_p_value,
 		  	AUTHOR_EMAIL );
 }
-#endif
 
-#ifdef _BUILD_PYTHON_BINDING
-
-/***************************************************************************
-  * Python interface
-  */
-
-static PyObject * _run( PyObject *self, PyObject *args ) {
-
-	int err = 0;
-	FILE *fp_input = NULL;
-	PyObject *fobj[2];
-
-	if( ! PyArg_ParseTuple( args, "OO", fobj+0, fobj+1 ) )
-		return NULL;
-	if( ! PyFile_Check( fobj[0] ) && ! PyFile_Check( fobj[1] ) )
-		return NULL;
-
-	fp_input = PyFile_AsFile( fobj[0] );
-	_fp_output = PyFile_AsFile( fobj[1] );
-
-	if( fp_input != NULL && _fp_output != NULL ) {
-		char *line = NULL;
-		size_t n   = 0;
-		PyFile_IncUseCount((PyFileObject*)fobj[0]);
-		PyFile_IncUseCount((PyFileObject*)fobj[1]);
-		Py_BEGIN_ALLOW_THREADS
-#if 0
-		while( getline( &line, &n, fp ) > 0 ) {
-			fputs( line, stdout );
-		}
-		if( line )
-			free( line );
-#else
-		/**
-		  * Load the input matrix.
-		  */
-
-		err	= mtm_parse( fp_input,
-				MTM_MATRIX_HAS_ROW_NAMES | MTM_MATRIX_HAS_HEADER,
-				mtm_default_NA_regex,
-				MAX_CATEGORY_COUNT,
-				mtm_sclass_by_prefix,
-				&_matrix );
-
-		if( err ) {
-			fprintf( stderr, "failed loading matrix (%d)\n", err );
-			goto unwind0;
-		}
-
-		if( covan_init( _matrix.columns ) ) goto unwind1;
-
-		_analyze_all_pairs();
-unwind1:
-		_matrix.destroy( &_matrix );
-unwind0:
-#endif
-		Py_END_ALLOW_THREADS
-		PyFile_DecUseCount((PyFileObject*)fobj[1]);
-		PyFile_DecUseCount((PyFileObject*)fobj[0]);
-	}
-	Py_RETURN_NONE;
-}
-
-static PyMethodDef methods[] = {
-	{"run",_run,METH_VARARGS},
-	{NULL,NULL},
-};
-
-PyMODINIT_FUNC initpairwise(void) {
-	PyObject *m
-		= Py_InitModule( "pairwise", methods );
-}
-
-#else
 
 int main( int argc, char *argv[] ) {
 
@@ -888,18 +819,6 @@ int main( int argc, char *argv[] ) {
 	const char *i_file = NULL;
 	const char *o_file = NULL;
 	FILE *fp           = NULL;
-
-	/**
-	  * Mandatory initializations.
-	  */
-
-	opt_na_regex = mtm_default_NA_regex;
-	memset( &_matrix,  0, sizeof(struct mtm_matrix) );
-
-	/**
-	 * This auto(de)selects options related to running this executable
-	 * under the TCGA web service.
-	 */
 
 #ifdef HAVE_MAGIC_SUFFIX
 	{
@@ -910,25 +829,19 @@ int main( int argc, char *argv[] ) {
 	}
 #endif
 
-	gsl_set_error_handler( _error_handler );
-
-	/**
-	 * Argument checks
-	 */
-
 	if( argc < 2 ) { // absolute minimum args: <executable name> <input matrix>
 		_print_usage( argv[0], stdout, USAGE_SHORT );
 		exit( EXIT_SUCCESS );
 	}
 
+	_jit_initialization();
+
 #ifdef HAVE_MAGIC_SUFFIX
 	/**
-	 * Running as a web service implies some changes to default arguments
-	 * ...and NOTHING else. For the purpose of minimizing testing paths,
-	 * The webservice executable is identical in every respect to the
-	 * command line too and SHOULD BE MAINTAINED SO.
+	 * This is an opportunity to customize command line options en masse
+	 * for particular users/applications.
+	 * Must FOLLOW _jit_initialization to potentially override.
 	 */
-
 	if( opt_running_as_webservice ) {
 	}
 #endif
@@ -1228,8 +1141,8 @@ int main( int argc, char *argv[] ) {
 	  * ... <filename1>
 	  */
 
-	static const char*NAME_STDIN  = "stdin";
-	static const char*NAME_STDOUT = "stdout";
+	static const char *NAME_STDIN  = "stdin";
+	static const char *NAME_STDOUT = "stdout";
 
 	switch( argc - optind ) {
 
@@ -1378,15 +1291,16 @@ int main( int argc, char *argv[] ) {
 
 	if( covan_init( _matrix.columns ) ) {
 		err( -1, "error: covan_init(%d)\n", _matrix.columns );
-	}
+	} else
+		atexit( covan_fini );
 
 	if( opt_verbosity >= V_INFO )
 		fprintf( _fp_output, "# %d rows/features X %d columns/samples\n", _matrix.rows, _matrix.columns );
 
 	if( USE_FDR_CONTROL ) {
-		_fp_cache = tmpfile();
+		_fdr_cache_fp = tmpfile();
 		_fdr_uncached_count = 0;
-		if( NULL == _fp_cache )
+		if( NULL == _fdr_cache_fp )
 			err( -1, "creating a temporary file" );
 	}
 
@@ -1442,21 +1356,121 @@ int main( int argc, char *argv[] ) {
 	// allowed to complete. (Post-processing involves a repetition of
 	// analysis FOR A SUBSET of the original input.)
 
-	if( USE_FDR_CONTROL && (! g_sigint_received) ) {
-		_fdr_postprocess( _fp_cache, arg_q_value, _fp_output );
+	if( USE_FDR_CONTROL && (! _sigint_received) ) {
+		_fdr_postprocess( _fdr_cache_fp, arg_q_value, _fp_output );
 	} else
 	if( opt_verbosity >= V_ESSENTIAL ) {
 		fprintf( _fp_output, "# %d filtered\n", _filtered );
 		// ...which does not apply in FDR control context.
 	}
 
-	if( _fp_cache )
-		fclose( _fp_cache );
+	if( _fdr_cache_fp )
+		fclose( _fdr_cache_fp );
 
 	if( _fp_output )
 		fclose( _fp_output );
 
 	return exit_status;
+}
+
+#else // _BUILD_PYTHON_BINDING
+
+static PyObject * _run( PyObject *self, PyObject *args ) {
+
+	PyObject * ret = Py_None;
+	FILE *fp_input = NULL;
+	PyObject *fobj[2];
+
+	if( ! PyArg_ParseTuple( args, "OO", fobj+0, fobj+1 ) ) {
+		// PyArg_ParseTuple has already raised appropriate exception.
+		return NULL;
+	}
+	if( ! PyFile_Check( fobj[0] ) ) {
+		PyErr_SetString( PyExc_TypeError, "1st argument is not a File object" );
+		return NULL;
+	}
+
+	if( ! PyFile_Check( fobj[1] ) ) {
+		PyErr_SetString( PyExc_TypeError, "2nd argument is not a File object" );
+		return NULL;
+	}
+
+	 fp_input  = PyFile_AsFile( fobj[0] );
+	_fp_output = PyFile_AsFile( fobj[1] );
+
+	if( fp_input != NULL && _fp_output != NULL ) {
+	
+		int err = 0;
+
+		PyFile_IncUseCount((PyFileObject*)fobj[0]);
+		PyFile_IncUseCount((PyFileObject*)fobj[1]);
+		Py_BEGIN_ALLOW_THREADS
+
+		/**
+		  * Load the input matrix.
+		  */
+
+		err	= mtm_parse( fp_input,
+				MTM_MATRIX_HAS_ROW_NAMES | MTM_MATRIX_HAS_HEADER,
+				mtm_default_NA_regex,
+				MAX_CATEGORY_COUNT,
+				mtm_sclass_by_prefix,
+				&_matrix );
+
+		Py_END_ALLOW_THREADS
+		PyFile_DecUseCount((PyFileObject*)fobj[1]);
+		PyFile_DecUseCount((PyFileObject*)fobj[0]);
+
+		// Python interpreter is locked (out) for remainder of 
+		// pairwise execution...
+
+		if( err == 0 ) {
+
+			if( covan_init( _matrix.columns ) == 0 ) {
+
+				if( _analyze_all_pairs() ) {
+					PyErr_SetString( PyExc_KeyboardInterrupt, "interruption" );
+					// ...only way _analyze_all_pairs returns non-zero.
+					ret = NULL;
+				}
+
+				covan_fini();
+
+			} else {
+				PyErr_SetString( PyExc_MemoryError,
+						"pre-allocating analysis buffers" );
+				ret = NULL;
+			}
+
+			_matrix.destroy( &_matrix );
+
+		} else {
+
+			static char buf[ 40 ];
+			// TODO: Improve error reporting in following.
+			sprintf( buf, "failed loading matrix (libmtm error %d)", err );
+			PyErr_SetString( PyExc_RuntimeError, buf );
+			ret = NULL;
+		}
+
+	} else {
+
+		PyErr_SetString( PyExc_RuntimeError, "PyFile_AsFile returned NULL" );
+		ret = NULL;
+	}
+
+	return ret;
+}
+
+static PyMethodDef methods[] = {
+	{"run",_run,METH_VARARGS},
+	{NULL,NULL},
+};
+
+PyMODINIT_FUNC initpairwise(void) {
+	PyObject *m
+		= Py_InitModule( "pairwise", methods );
+	_jit_initialization();
 }
 
 #endif

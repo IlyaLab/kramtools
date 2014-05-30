@@ -60,6 +60,8 @@ typedef const CovariateAnalysis_t COVARIATEANALYSIS_T;
   */
 int  covan_init( int columns );
 
+void covan_fini( void );
+
 /**
  * Returns non-zero on error and 0 otherwise.
  */
