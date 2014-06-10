@@ -293,9 +293,6 @@ int main( int argc, char *argv[] ) {
 	// Echo the matrix as text
 
 	if( opt_echo ) {
-		if( opt_expect_rownames ) {
-			mtm_resolve_rownames( &m, (signed long)m.row_names );
-		}
 		_dump( &m, opt_label_format, opt_float_format, stdout );
 #ifdef HAVE_MD5
 		if( opt_include_md5 ) {
