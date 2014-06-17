@@ -7,7 +7,11 @@ EXECUTABLE_BASENAME=pairwise
 VER_MAJ=2
 VER_MIN=0
 VER_FIX=0
-VER_TAG=rc
+ifdef DEBUG
+VER_TAG=rc2-dbg
+else
+VER_TAG=rc2-rel
+endif
 VERSION=-D_VER_MAJ=$(VER_MAJ)\
 	   	-D_VER_MIN=$(VER_MIN)\
 	   	-D_VER_FIX=$(VER_FIX)\

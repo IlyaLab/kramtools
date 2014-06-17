@@ -344,7 +344,7 @@ int covan_exec(
 			for(int i = 0; i < max_sample_count; i++ ) {
 
 				const float F1 
-					= ((const unsigned int*)pair->l.data)[i];
+					= ((const float*)pair->l.data)[i];
 				const unsigned int F2 
 					= pair->r.data[i];
 
