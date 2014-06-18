@@ -14,7 +14,7 @@ struct CovariateAnalysis {
 #define COVAN_E_COVAR_DEGEN  0x00000004 // Covariate degeneracy
 #define COVAN_E_MATH         0x00000008 // Something went south in the math.
 #define COVAN_E_TOOMANY_CATS 0x00000010 // Too many categories
-#define COVAN_E_MASK         0x0000001F
+#define COVAN_E_MASK         (COVAN_E_SAMPLES_SIZE|COVAN_E_UNIVAR_DEGEN|COVAN_E_COVAR_DEGEN|COVAN_E_MATH|COVAN_E_TOOMANY_CATS)
 // This list must stay synchronized with the text in usage_full.txt.
 
 	unsigned status;

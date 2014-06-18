@@ -222,7 +222,8 @@ static bool _sigint_received = false;
   * counted because it is assumed that that is known to the caller who
   * set up the run, after all.
   */
-static unsigned _filtered = 0;
+static unsigned _insignificant = 0;
+static unsigned _untested      = 0;
 
 /**
   * The binary matrix is accessed at runtime through this variable.
@@ -279,6 +280,9 @@ static void _filter( ANALYSIS_FN_SIG ) {
 	if( ! ( isfinite( covan.result.probability ) && fpclassify( covan.result.probability ) != FP_SUBNORMAL ) ) {
 		covan.result.probability = 1.0;
 		covan.status             = COVAN_E_MATH;
+		// The assumption is that if a NaN shows up in the result, it was
+		// triggered by an un"pre"detected degeneracy, and so the pair was
+		// in fact untestable (how it will be interpreted below).
 	}
 
 #ifdef _DEBUG
@@ -289,9 +293,9 @@ static void _filter( ANALYSIS_FN_SIG ) {
 			if( covan.result.probability <= opt_p_value )
 				_emit( pair, &covan, _fp_output );
 			else
-				_filtered += 1;
+				_insignificant += 1;
 		} else
-			abort();
+			_untested += 1;
 
 #ifdef _DEBUG
 	}	
@@ -1361,7 +1365,11 @@ int main( int argc, char *argv[] ) {
 		_fdr_postprocess( _fdr_cache_fp, arg_q_value, _fp_output );
 	} else
 	if( opt_verbosity >= V_ESSENTIAL ) {
-		fprintf( _fp_output, "# %d filtered\n", _filtered );
+		fprintf( _fp_output, 
+				"# %d filtered for insignificance\n"
+				"# %d filtered for some sort of degeneracy\n", 
+				_insignificant,
+				_untested );
 		// ...which does not apply in FDR control context.
 	}
 
