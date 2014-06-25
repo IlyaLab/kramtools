@@ -9,13 +9,17 @@
 
 #include <gsl/gsl_cdf.h>
 
+#include "limits.h"
 #include "stattest.h"
 #include "cat.h"
 #include "fisher.h"
 #include "min2.h"
 #include "bvr.h"
 
+#define HAVE_OPTIMAL_CULLING
+
 typedef unsigned int count_t;
+typedef const count_t COUNT_T;
 typedef double       prob_t;
 
 /**
@@ -127,9 +131,8 @@ static void _recalcSampleCount( struct CatCovars *co ) {
 static bool _badCellExists( struct CatCovars *co,
 		unsigned int *offset ) {
 
-	const unsigned int N = co->decl_cells;
 	unsigned int i = *offset;
-	while( i < N ) {
+	while( i < co->decl_cells ) {
 		if( co->counts[i] < co->REQUIRED_CELL_MINIMUM ) {
 			*offset = i;
 			return true;
@@ -487,6 +490,28 @@ bool cat_is2x2( void *pv ) {
 }
 
 
+#ifdef HAVE_OPTIMAL_CULLING
+/**
+  * <bits> will ALWAYS be non-zero on entry, but it may only contain
+  * a single set bit.
+  */
+static int _offsetOfLeastLoss( unsigned bits, COUNT_T *loss, count_t *leastLoss ) {
+	int v = __builtin_ctz( bits );
+	int l = loss[v];
+	bits ^= (1<<v);
+	while( bits ) {
+		const int i = __builtin_ctz( bits );
+		bits ^= (1<<i);
+		if( l > loss[i] ) {
+			l = loss[i];
+			v = i;
+		}
+	}
+	*leastLoss = l;
+	return v;
+}
+#endif
+
 /**
  * This removes all rows and any columns containing cells with
  * counts LESS THAN OR EQUAL TO REQUIRED_CELL_MINIMUM.
@@ -496,34 +521,96 @@ bool cat_is2x2( void *pv ) {
  */
 unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 
-	struct CatCovars *co = (struct CatCovars *)pv;
+#ifdef _DEBUG
+	const bool SHOW_CULLING = getenv("SHOW_CULLING") != NULL;
+#endif
 	unsigned int culled = 0;
-	// BEGIN log maintenance...
+	struct CatCovars *co = (struct CatCovars *)pv;
 	const char * const EOL = log + buflen - 2; // leave room for "+\0".
+	// BEGIN log maintenance...
 	const int MIN_LOG_RECORD_LEN = 3; // "R99"
 	// ...since tables will never exceed 99 rows or columns.
 	char *pc = log;
 	// ...END log maintenance.
-
 	unsigned int victim;
-	unsigned int linoff = 0; // linear offsets of "bad" cell.
+	unsigned int raw_mem_offset = 0; // linear offsets of "bad" cell.
 
 	assert( ! _immediatelyDegenerate( co ) ); // so BOTH dims >= 2
 
-	while( (co->decl_rows > 2 || co->decl_cols > 2) && _badCellExists( co, &linoff ) ) {
+	while( (co->decl_rows > 2 || co->decl_cols > 2) && _badCellExists( co, &raw_mem_offset ) ) {
 
-		char cullty = '?';
 		unsigned int r, c;
-		_coordsOfOffset( co, linoff, &r, &c );
+		char cullty = '?';
+
+#ifdef HAVE_OPTIMAL_CULLING
+
+		/**
+		  * It is always necessary to cull a row or column.
+		  * If |columns| > 3, calculate "best" column to cull.
+		  * If |rows| > 3, calculate "best" row to cull.
+		  * "Best" victim is row OR column among the candidates for
+		  * culling with minimal marginal.
+		  */
+
+		unsigned row_bitfield = 0;
+		unsigned col_bitfield = 0;
+		count_t minRowCost, minColCost;
+
+		assert( sizeof(row_bitfield)*8 >= MAX_CATEGORY_COUNT );
+
+		// Find ALL rows and columns that are candidates for culling by 
+		// virtue of containing a bad cell.
+
+		do {
+			_coordsOfOffset( co, raw_mem_offset, &r, &c );
+			row_bitfield |= (1<<r);
+			col_bitfield |= (1<<c);
+			++ raw_mem_offset;
+			// Add the row and column to the list of candidate victims.
+		} while( _badCellExists( co, &raw_mem_offset ) );
+
+		if( co->calculated < Marginals ) 
+			_calc_marginals( co );
+
+		if( co->decl_rows > 2 ) {
+
+			r = _offsetOfLeastLoss( row_bitfield, co->rmarg, &minRowCost );
+
+			if( co->decl_cols > 2 ) { // EITHER a col OR row may be culled
+
+				c = _offsetOfLeastLoss( col_bitfield, co->cmarg, &minColCost );
+				cullty = minRowCost < minColCost ? 'R' : 'C';
+
+			} else                    // ONLY a row may be culled
+				cullty = 'R';
+
+		} else {                      // ONLY a column may be culled
+
+			c = _offsetOfLeastLoss( col_bitfield, co->cmarg, &minColCost );
+			cullty = 'C';
+		}
+
+		if( cullty == 'R' )
+			_cullRow( co, (victim = r) );
+		else
+			_cullCol( co, (victim = c) );
+
+#ifdef _DEBUG
+		if( SHOW_CULLING ) 
+			fprintf( stderr, "R: %08X C: %08X, selected (%d,%d)\n", row_bitfield, col_bitfield, r, c );
+#endif
+
+#else
+		_coordsOfOffset( co, raw_mem_offset, &r, &c );
 
 		if( co->calculated < Marginals ) 
 			_calc_marginals( co );
 
 #ifdef _DEBUG
-		if( getenv("SHOW_CULLING") ) {
+		if( SHOW_CULLING ) {
 			fprintf( stderr, 
 				"%d at linear offset %d (row %d, col %d) is < %d. R/C marginals are %d/%d\n",
-				co->counts[linoff], linoff, 
+				co->counts[raw_mem_offset], raw_mem_offset, 
 				r, c, co->REQUIRED_CELL_MINIMUM,
 				co->rmarg[r],
 				co->cmarg[c] );
@@ -551,7 +638,7 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 			} else
 				break;
 		}
-
+#endif
 		// Log it, if possible...
 
 		if( pc ) {
@@ -572,7 +659,7 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 		// Unlike merging, decimating CAN leave a 0 cell at a lower
 		// linear index, so reset is required...
 		culled++;
-		linoff = 0;
+		raw_mem_offset = 0;
 	}
 
 	if( culled > 0 ) 
