@@ -193,7 +193,7 @@ while ntests > 0 do
 		IO.popen( "#{executable} -v 0 -h -r -P 1,0 #{input.path}", 'r' ) { |fd|
 			results << fd.gets.chomp.split("\t")
 		}
-		if results[0][3].to_f != results[1][3].to_f then
+		if (results[0][4].to_i != results[1][4].to_i) or (results[0][5].to_f != results[1][5].to_f) then
 			system( "cat #{input.path}" )
 			break
 		end
