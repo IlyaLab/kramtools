@@ -335,7 +335,7 @@ static void _minimalMarginals( struct CatCovars *co, unsigned int *rm, unsigned 
 /**
  * A pretty printer...primarily for debugging.
  */
-#if defined(_UNITTEST_CAT_)
+#ifdef _DEBUG
 static void dbg_dump( struct CatCovars *co, FILE *fp ) {
 
 	fprintf( fp, "%d(r) x %d(c) (capacity = %dx%d)\n",
@@ -541,6 +541,12 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 
 		unsigned int r, c;
 		char cullty = '?';
+#ifdef _DEBUG
+		if( SHOW_CULLING ) {
+			fprintf( stderr, "# %d culled\n", culled );
+			dbg_dump( co, stderr );
+		}
+#endif
 
 #ifdef HAVE_OPTIMAL_CULLING
 
