@@ -10,7 +10,7 @@ n
 # Escape any and all EXISTING quotes
 s/"/\\"/g
 # Convert any and all EXISTING to fixed whitespace.
-s/\t/    /g
+s/\011/    /g
 
 # Surround every line NOT prefixed with # or U with quotes and an escaped newline.
 /^[^#]/s/^/"/

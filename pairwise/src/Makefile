@@ -79,8 +79,14 @@ CFLAGS+=-D_SVID_SOURCE
 
 LDFLAGS+=-L$(LIBDIR)
 
-CFLAGS+=-DHAVE_LUA
-LDFLAGS+=-llua
+#CFLAGS+=-DHAVE_LUA
+#LDFLAGS+=-llua
+
+ifeq ($(shell uname),Darwin)
+	STATIC=""
+else
+	STATIC="-static"
+endif
 
 ############################################################################
 # Primary
@@ -96,7 +102,7 @@ usage_short.c : usage_short.txt
 	sed -f usage.sed $< > $@
 
 $(VERSIONED_EXECUTABLE) : $(SOURCES) analysis.c cat.c mix.c num.c usage_full.c usage_short.c
-	$(CC) -o $@ -static $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
+	$(CC) -o $@ $(STATIC) $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
 
 # Following target will be eliminated away as soon as gratuitous C++ purged.
 
