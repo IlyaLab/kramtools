@@ -171,6 +171,16 @@ int covan_exec(
 	strcpy( covan->waste[1].result.log, "-" );
 	strcpy( covan->result.log, "-" );
 
+	// Because we don't anticipate ordinal features yet...
+
+	assert( (pair->l.prop.integral > 0) == (C1 > 0) );
+	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
+
+	covan->stat_class.left
+		= C1 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+	covan->stat_class.right
+		= C2 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+
 	/**
 	  * Determine feature classes and check for univariate degeneracy.
 	  * Univariate degeneracy precludes further analysis. 
@@ -184,16 +194,6 @@ int covan_exec(
 		covan->status = COVAN_E_TOOMANY_CATS;
 		return -1;
 	}
-
-	// Because we don't anticipate ordinal features yet...
-
-	assert( (pair->l.prop.integral  > 0) == (C1 > 0) );
-	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
-
-	covan->stat_class.left 
-		= C1 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
-	covan->stat_class.right
-		= C2 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
 
 	// At this point there should be no other returns until function's end!
 	// Collect and report whatever we can...
