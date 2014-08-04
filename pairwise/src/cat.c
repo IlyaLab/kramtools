@@ -16,8 +16,6 @@
 #include "min2.h"
 #include "bvr.h"
 
-#define HAVE_OPTIMAL_CULLING
-
 typedef unsigned int count_t;
 typedef const count_t COUNT_T;
 typedef double       prob_t;
@@ -336,27 +334,32 @@ static void _minimalMarginals( struct CatCovars *co, unsigned int *rm, unsigned 
  * A pretty printer...primarily for debugging.
  */
 #ifdef _DEBUG
-static void dbg_dump( struct CatCovars *co, FILE *fp ) {
+static void dbg_dump( struct CatCovars *co, FILE *fp, const char *prefix ) {
 
-	fprintf( fp, "%d(r) x %d(c) (capacity = %dx%d)\n",
+	if( prefix==NULL ) prefix="";
+
+	fprintf( fp, "%s %d(r) x %d(c) (capacity = %dx%d)\n",
+		prefix,
 		co->decl_rows,
 		co->decl_cols,
 		co->ROW_CAPACITY,
 		co->COL_CAPACITY );
 
-	fprintf( fp, "cell counts...\n" );
+	fprintf( fp, "%s cell counts...\n", prefix );
 	for(unsigned int r = 0; r < co->decl_rows; r++ ) {
+		fputs( prefix, fp );
 		for(unsigned int c = 0; c < co->decl_cols; c++ ) {
-			fprintf( fp, "%d\t", _count(co,r,c) );
+			fprintf( fp, "\t%d", _count(co,r,c) );
 		}
 		fputc( '\n', fp );
 	}
 
 	if( co->calculated >= Expectation ) {
-		fprintf( fp, "%d total samples, expectation...\n", co->sample_count );
+		fprintf( fp, "%s %d total samples, expectation...\n", prefix, co->sample_count );
 		for(unsigned int r = 0; r < co->decl_rows; r++ ) {
+			fputs( prefix, fp );
 			for(unsigned int c = 0; c < co->decl_cols; c++ ) {
-				fprintf( fp, "%.3e\t", _expected( co, r, c) );
+				fprintf( fp, "\t%.3e", _expected( co, r, c) );
 			}
 			fputc( '\n', fp );
 		}
@@ -490,7 +493,6 @@ bool cat_is2x2( void *pv ) {
 }
 
 
-#ifdef HAVE_OPTIMAL_CULLING
 /**
   * <bits> will ALWAYS be non-zero on entry, but it may only contain
   * a single set bit.
@@ -510,7 +512,6 @@ static int _offsetOfLeastLoss( unsigned bits, COUNT_T *loss, count_t *leastLoss 
 	*leastLoss = l;
 	return v;
 }
-#endif
 
 /**
  * This removes all rows and any columns containing cells with
@@ -521,9 +522,6 @@ static int _offsetOfLeastLoss( unsigned bits, COUNT_T *loss, count_t *leastLoss 
  */
 unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 
-#ifdef _DEBUG
-	const bool SHOW_CULLING = getenv("SHOW_CULLING") != NULL;
-#endif
 	unsigned int culled = 0;
 	struct CatCovars *co = (struct CatCovars *)pv;
 	const char * const EOL = log + buflen - 2; // leave room for "+\0".
@@ -535,20 +533,20 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 	unsigned int victim;
 	unsigned int raw_mem_offset = 0; // linear offsets of "bad" cell.
 
+#ifdef _DEBUG
+	const bool SHOW_CULLING = getenv("SHOW_CULLING") != NULL;
+	if( SHOW_CULLING ) {
+		fprintf( stderr, "CULL log: original matrix\n" );
+		dbg_dump( co, stderr, "CULL" );
+	}
+#endif
+
 	assert( ! _immediatelyDegenerate( co ) ); // so BOTH dims >= 2
 
 	while( (co->decl_rows > 2 || co->decl_cols > 2) && _badCellExists( co, &raw_mem_offset ) ) {
 
 		unsigned int r, c;
 		char cullty = '?';
-#ifdef _DEBUG
-		if( SHOW_CULLING ) {
-			fprintf( stderr, "# %d culled\n", culled );
-			dbg_dump( co, stderr );
-		}
-#endif
-
-#ifdef HAVE_OPTIMAL_CULLING
 
 		/**
 		  * It is always necessary to cull a row or column.
@@ -598,53 +596,11 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 
 		if( cullty == 'R' )
 			_cullRow( co, (victim = r) );
-		else
+		else {
+			assert( cullty == 'C' );
 			_cullCol( co, (victim = c) );
-
-#ifdef _DEBUG
-		if( SHOW_CULLING ) 
-			fprintf( stderr, "R: %08X C: %08X, selected (%d,%d)\n", row_bitfield, col_bitfield, r, c );
-#endif
-
-#else
-		_coordsOfOffset( co, raw_mem_offset, &r, &c );
-
-		if( co->calculated < Marginals ) 
-			_calc_marginals( co );
-
-#ifdef _DEBUG
-		if( SHOW_CULLING ) {
-			fprintf( stderr, 
-				"%d at linear offset %d (row %d, col %d) is < %d. R/C marginals are %d/%d\n",
-				co->counts[raw_mem_offset], raw_mem_offset, 
-				r, c, co->REQUIRED_CELL_MINIMUM,
-				co->rmarg[r],
-				co->cmarg[c] );
 		}
-#endif
 
-		if( co->rmarg[r] < co->cmarg[c] ) { // Prefer to cull row
-			if( co->decl_rows > 2 ) {
-				_cullRow( co, (victim = r) );
-				cullty = 'R';
-			} else 
-			if( co->decl_cols > 2 ) {
-				_cullCol( co, (victim = c) );
-				cullty = 'C';
-			} else
-				break;
-		} else {                    // Prefer to cull column
-			if( co->decl_cols > 2 ) {
-				_cullCol( co, (victim = c) );
-				cullty = 'C';
-			} else 
-			if( co->decl_rows > 2 ) {
-				_cullRow( co, (victim = r) );
-				cullty = 'R';
-			} else
-				break;
-		}
-#endif
 		// Log it, if possible...
 
 		if( pc ) {
@@ -666,6 +622,17 @@ unsigned int cat_cullBadCells( void *pv, char *log, int buflen ) {
 		// linear index, so reset is required...
 		culled++;
 		raw_mem_offset = 0;
+
+#ifdef _DEBUG
+		if( SHOW_CULLING ) {
+			fprintf( stderr,
+				"CULL After %d selected %c%d (from R:%08X,C:%08X) costing %d samples\n", 
+				culled, cullty, victim,
+				row_bitfield, col_bitfield, 
+			   	cullty=='R' ? minRowCost : minColCost );
+			dbg_dump( co, stderr, "CULL" );
+		}
+#endif
 	}
 
 	if( culled > 0 ) 
@@ -891,11 +858,11 @@ int main( int argc, char *argv[] ) {
 		fclose( fp );
 
 		puts( "Original..." );
-		dbg_dump( accum, stdout );
+		dbg_dump( accum, stdout, ""  );
 
 		if( cat_cullBadCells( accum, merge_log, MERGE_LOG_LEN ) > 0 ) {
 			fprintf( stdout, "Culled %s, leaving...\n", merge_log );
-			dbg_dump( accum, stdout );
+			dbg_dump( accum, stdout, "" );
 		}
 
 		memset( &result, 0, sizeof(struct Statistic) );

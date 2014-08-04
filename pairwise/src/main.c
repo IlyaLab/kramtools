@@ -134,7 +134,9 @@ static const char *opt_pairlist_source = NULL;
 
 static const char *NO_ROW_LABELS       = "matrix has no row labels";
 static bool        opt_by_name         = false;
+#ifdef HAVE_LUA
 static const char *DEFAULT_COROUTINE   = "pair_generator";
+#endif
 static const char *opt_coroutine       = NULL;
 static bool        opt_dry_run         = false;
 static const char *opt_format          = "tcga";
@@ -156,10 +158,6 @@ static bool     opt_warnings_are_fatal = false;
 #define V_INFO      (3)
 
 static int opt_verbosity = V_ESSENTIAL;
-
-#ifdef HAVE_MAGIC_SUFFIX
-static bool  opt_running_as_webservice = false;
-#endif
 
 #endif // not _BUILD_PYTHON_BINDING
 
@@ -791,17 +789,17 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			exename,
 			TYPE_PARSER_INFER,
 			opt_na_regex,
+#ifdef HAVE_LUA
 			DEFAULT_COROUTINE,
-
+#endif
 			arg_min_cell_count,
-			arg_min_sample_count,
 			arg_min_mixb_count,
+			arg_min_sample_count,
 
-			opt_status_mask,
 			opt_p_value,
+			opt_status_mask,
 			opt_format,
-			MAGIC_FORMAT_ID_STD,
-			MAGIC_FORMAT_ID_TCGA,
+			MAGIC_FORMAT_ID_STD, MAGIC_FORMAT_ID_TCGA,
 			_YN(opt_warnings_are_fatal),
 			opt_verbosity,
 			MAGIC_SUFFIX,
@@ -825,31 +823,12 @@ int main( int argc, char *argv[] ) {
 	const char *o_file = NULL;
 	FILE *fp           = NULL;
 
-#ifdef HAVE_MAGIC_SUFFIX
-	{
-		const char *ps
-			= strstr( argv[0], MAGIC_SUFFIX );
-		opt_running_as_webservice = ( NULL != ps )
-			&& strcmp(ps, MAGIC_SUFFIX) == 0; // it's really a suffix
-	}
-#endif
-
 	if( argc < 2 ) { // absolute minimum args: <executable name> <input matrix>
 		_print_usage( argv[0], stdout, USAGE_SHORT );
 		exit( EXIT_SUCCESS );
 	}
 
 	_jit_initialization();
-
-#ifdef HAVE_MAGIC_SUFFIX
-	/**
-	 * This is an opportunity to customize command line options en masse
-	 * for particular users/applications.
-	 * Must FOLLOW _jit_initialization to potentially override.
-	 */
-	if( opt_running_as_webservice ) {
-	}
-#endif
 
 	do {
 
@@ -1273,14 +1252,11 @@ int main( int argc, char *argv[] ) {
 		exit( EXIT_SUCCESS );
 	}
 
-#ifdef HAVE_MAGIC_SUFFIX
-	if( ! opt_running_as_webservice ) {
-		if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
-			warn( "failed installing interrupt handler\n"
-				"\tCtrl-C will terminated gracelessly\n" );
-		}
+	if( SIG_ERR == signal( SIGINT, _interrupt ) ) {
+		warn( "failed installing interrupt handler\n"
+			"\tCtrl-C will terminated gracelessly\n" );
 	}
-#endif
+
 	/**
 	  * Choose and open, if necessary, an output stream.
 	  */

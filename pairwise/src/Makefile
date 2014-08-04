@@ -8,9 +8,9 @@ VER_MAJ=2
 VER_MIN=0
 VER_FIX=0
 ifdef DEBUG
-VER_TAG=rc4-dbg
+VER_TAG=rc5-dbg
 else
-VER_TAG=rc4-rel
+VER_TAG=rc5-rel
 endif
 VERSION=-D_VER_MAJ=$(VER_MAJ)\
 	   	-D_VER_MIN=$(VER_MIN)\
@@ -79,8 +79,8 @@ CFLAGS+=-D_SVID_SOURCE
 
 LDFLAGS+=-L$(LIBDIR)
 
-#CFLAGS+=-DHAVE_LUA
-#LDFLAGS+=-llua
+CFLAGS+=-DHAVE_LUA
+LDFLAGS+=-llua
 
 ifeq ($(shell uname),Darwin)
 	STATIC=""
