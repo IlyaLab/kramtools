@@ -287,9 +287,13 @@ retry:
 			break;
 
 		case MTM_FIELD_TYPE_STR:
-			if( szs_insert( s->set, token, &(last_value_read.i) ) == SZS_TABLE_FULL ) {
+			if( szs_insert( s->set, token, &(last_value_read.i) ) == SZS_TABLE_FULL )
 				return MTM_E_LIMITS;
-			}
+			// The hashset will only return SZS_TABLE_FULL when genuinely
+			// full, but, if s->max_categories was not itself a power of 2,
+			// s->set can hold > s->max_categories. Thus, another check...
+			if( szs_count( s->set ) > s->max_categories )
+				return MTM_E_LIMITS;
 			s->buf.cat[ count++ ] = last_value_read.i;
 			break;
 
@@ -365,9 +369,11 @@ retry:
 					pc = line;
 					count = 0;
 					do {
-						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL ) {
+						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL )
 							return MTM_E_LIMITS;
-						}
+						// See comment re: szs_insert elsewhere.
+						if( szs_count( s->set ) > s->max_categories )
+							return MTM_E_LIMITS;
 						s->buf.cat[ count++ ] = last_value_read.i;
 						if( pc == token) break;
 						pc += strlen(pc)+1;
@@ -432,9 +438,15 @@ retry:
 				= cardinality( s->buf.cat, count, s->max_categories, NAN_AS_UINT );
 			// If the cardinality is small enough (as defined by input parameters)
 			// it's treatable as a categorical variable whether it -is- or not...
-			if( card <= s->max_categories ) {
+			// TODO: Ordinal is not fully supported yet; rows containing integers
+			// that the caller did not explicitly specify were continuous are
+			// assumed to be categorical, so (currently) the cardinality of the
+			// set of values must also respect the category limit. Eventually,
+			// this may not be true.
+			if( card <= s->max_categories )
 				d->categories = card;
-			}
+			else
+				return MTM_E_LIMITS;
 		}
 		// If the feature is encoded as integers and more than the maximum
 		// allowed categories exist, it is implicitl ordinal(?)
@@ -646,8 +658,8 @@ int mtm_parse( FILE *input,
 
 		memset( &d, 0, sizeof(d) );
 
-		if( _parseLine( pc, &s, stat_class, verbosity, &d ) ) {
-			fprintf( stderr, "%s: aborting parsing on line %d\n", MTMLIB, lnum );
+		if( ( econd = _parseLine( pc, &s, stat_class, verbosity, &d ) ) ) {
+			warnx( "%s: aborting parsing at input line %d", __FILE__, lnum );
 			break;
 		}
 
@@ -725,7 +737,7 @@ int mtm_parse( FILE *input,
 					if( fflush( s.cache[i] ) ||
 						fseek( s.cache[i], 0, SEEK_SET ) ||
 						fread( ptr, sizeof_part[i], 1, s.cache[i] ) != 1 ) {
-						warn( "failed reading cache %d", i );
+						warnx( "%s: failed reading cache %d", __FILE__, i );
 						break;
 					}
 #ifdef _DEBUG

@@ -8,9 +8,9 @@ VER_MAJ=2
 VER_MIN=0
 VER_FIX=0
 ifdef DEBUG
-VER_TAG=rc5-dbg
+VER_TAG=rc6-dbg
 else
-VER_TAG=rc5-rel
+VER_TAG=rc6-rel
 endif
 VERSION=-D_VER_MAJ=$(VER_MAJ)\
 	   	-D_VER_MIN=$(VER_MIN)\

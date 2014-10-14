@@ -30,5 +30,5 @@ print( "C:x", *[ C[i] for i in P ], sep="\t" )
 
 # ...and again to create the 2nd vector.
 P = permute.permutation(N*R)
-print( "C:x", *[ C[i] for i in P ], sep="\t" )
+print( "C:y", *[ C[i] for i in P ], sep="\t" )
 

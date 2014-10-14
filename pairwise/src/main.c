@@ -175,13 +175,24 @@ static const char *opt_na_regex       = NULL; // must be initialized in main
 
 static double      opt_p_value        = 1.0;
 
+/**
+  * Eventually it is (was) intended to support delegating row label
+  * interpretation--in particular inference of a row's statistical class
+  * based on its row label--to a user-provided Lua function.
+  * Currently, only the default interpreter built into libmtm is actually
+  * supported, which interprets row labels according to "ISB conventions."
+  */
 static MTM_ROW_LABEL_INTERPRETER _interpret_row_label = mtm_sclass_by_prefix;
 
 static unsigned opt_status_mask       = COVAN_E_MASK;
 
 #ifdef HAVE_LUA
 static lua_State *_L = NULL;
-int _delegate_row_label_to_lua( const char *label ) {
+/**
+  * Delegate inference of a row's statistical class to a user-provided
+  * function.
+  */
+int _lua_statclass_inference( const char *label ) {
 	fprintf( stderr, "interpret %s\n", label );
 	return MTM_STATCLASS_UNKNOWN;
 }
@@ -1359,6 +1370,13 @@ int main( int argc, char *argv[] ) {
 }
 
 #else // _BUILD_PYTHON_BINDING
+
+/**
+  * All the following is for a very specific ISB-only use case related to a
+  * web app developed by Dick Kreisberg et al.
+  * ../test/testpyext.py exercises this, but that's your only guide.
+  * There is no further documentation and none planned for this.
+  */
 
 static PyObject * _run( PyObject *self, PyObject *args ) {
 
