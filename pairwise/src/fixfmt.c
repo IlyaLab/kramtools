@@ -37,7 +37,7 @@
   * 10 -- -log10(p-value) of Kruskal-Wallis test of difference 
   *       between used and unused parts of feature B
   */
-static double __attribute__((always_inline)) _clamped( double prob ) {
+static double __attribute__((always_inline)) _clamped_neglog( double prob ) {
 	prob = -log10( prob );
 	return isinf(prob) || (prob > 300 ) ? 300.0 : prob;
 }
@@ -70,17 +70,10 @@ static const char *COVAR_TYPE_STR( unsigned l, unsigned r ) {
 
 void format_tcga( EMITTER_SIG ) {
 
-	double NLOGP[3];
-	char rho[8];
-
-	if( covan->sign == 0 )
-		strcpy( rho, "NA" );
-	else 
-		sprintf( rho, "%+.2f", covan->sign );
-
-	NLOGP[0] = _clamped( covan->result.probability );
-	NLOGP[1] = _clamped( covan->waste[0].result.probability );
-	NLOGP[2] = _clamped( covan->waste[1].result.probability );
+	const int u0
+		= covan->waste[0].unused;
+	const int u1
+		= covan->waste[1].unused;
 
 	if( pair->l.name != NULL && pair->r.name != NULL ) {
 		fprintf( fp, "%s\t%s\t",  pair->l.name,   pair->r.name );
@@ -90,18 +83,18 @@ void format_tcga( EMITTER_SIG ) {
 
 	fprintf( fp, 
 		"%s\t"
-		"%s\t"
+		"%+.2f\t"
 		"%d\t"
 		"%.3f\t"
 		"%d\t%.3f\t"
 		"%d\t%.3f\t"
 		"%s\n", 
 		COVAR_TYPE_STR( covan->stat_class.left, covan->stat_class.right ),
-		rho, 
+		covan->sign, 
 		covan->result.sample_count, 
-		NLOGP[0       ],
-		covan->waste[0].unused, NLOGP[1],
-		covan->waste[1].unused, NLOGP[2],
+		_clamped_neglog( covan->result.probability ),
+		u0, u0 > 0 ? _clamped_neglog( covan->waste[0].result.probability ) : 0.0,
+		u1, u1 > 0 ? _clamped_neglog( covan->waste[1].result.probability ) : 0.0,
 		covan->result.log );
 }
 
