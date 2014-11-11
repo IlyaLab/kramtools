@@ -7,11 +7,14 @@ EXECUTABLE_BASENAME=pairwise
 VER_MAJ=2
 VER_MIN=0
 VER_FIX=0
+RC=8
+
 ifdef DEBUG
-VER_TAG=rc7-dbg
+VER_TAG=rc$(RC)-dbg
 else
-VER_TAG=rc7-rel
+VER_TAG=rc$(RC)-rel
 endif
+
 VERSION=-D_VER_MAJ=$(VER_MAJ)\
 	   	-D_VER_MIN=$(VER_MIN)\
 	   	-D_VER_FIX=$(VER_FIX)\
@@ -64,8 +67,10 @@ UNITTESTS=ut_mix \
 
 ifdef DEBUG
 CFLAGS+=-O0 -g -D_DEBUG -Wall
+MTM=mtm-dbg
 else
 CFLAGS+=-O3 -DNDEBUG
+MTM=mtm
 endif
 
 CFLAGS+=-std=c99 
@@ -83,9 +88,9 @@ CFLAGS+=-DHAVE_LUA
 LDFLAGS+=-llua
 
 ifeq ($(shell uname),Darwin)
-	STATIC=""
+LINKTYPE=
 else
-	STATIC="-static"
+LINKTYPE=-static
 endif
 
 ############################################################################
@@ -102,7 +107,7 @@ usage_short.c : usage_short.txt
 	sed -f usage.sed $< > $@
 
 $(VERSIONED_EXECUTABLE) : $(SOURCES) analysis.c cat.c mix.c num.c usage_full.c usage_short.c
-	$(CC) -o $@ $(STATIC) $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -lmtm
+	$(CC) -o $@ $(LINKTYPE) $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -l$(MTM)
 
 # Following target will be eliminated away as soon as gratuitous C++ purged.
 

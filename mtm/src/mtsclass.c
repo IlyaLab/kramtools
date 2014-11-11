@@ -32,9 +32,9 @@ const char *stat_class_name( unsigned bitfield ) {
   */
 static unsigned field_types[ 9 /* STAT_CLASS_ bitfield value */ ] = {
 	MTM_FIELD_TYPE_UNK,                                // unknown
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // boolean
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // categorical
-	MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,           // boolean OR categorical
+	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // boolean
+	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // categorical
+	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // boolean OR categorical
 	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal
 	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR boolean
 	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR categorical

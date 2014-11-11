@@ -11,14 +11,20 @@ HAVE_MD5=
 
 ############################################################################
 
+BASENAME=libmtm
 LDFLAGS=-lm
 
 ifdef DEBUG
 CFLAGS+=-O0 -g -D_DEBUG -Wall
+INFIX=-dbg
 else
 CFLAGS+=-O3 -DNDEBUG
 LDFLAGS+=-Wl,-s
+INFIX=
 endif
+
+SHARED_LIB="$(BASENAME)$(INFIX).so"
+STATIC_LIB="$(BASENAME)$(INFIX).a"
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
@@ -50,13 +56,13 @@ all : mtproc install
 %.o : %.c
 	$(CC) -c -o $@  -fPIC $(CFLAGS) $^
 
-libmtm.so : $(OBJECTS)
+$(SHARED_LIB) : $(OBJECTS)
 	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
 
-libmtm.a : $(OBJECTS)
+$(STATIC_LIB) : $(OBJECTS)
 	ar rcs $@ $^ 
 
-mtproc : main.c syspage.c $(CONTRIB)/md5/md5.c libmtm.so
+mtproc : main.c syspage.c $(CONTRIB)/md5/md5.c $(SHARED_LIB)
 	$(CC) -o $@ $(CFLAGS) $^ -L$(INSTALL_LIB) -lm -lmtm
 
 ############################################################################
@@ -69,12 +75,12 @@ ut-toktype : toktype.c
 ut-cardinality : cardinality.c
 	$(CC) -o $@ $(CFLAGS) -D_UNIT_TEST_CARDINALITY $^ -lm
 
-install : libmtm.so libmtm.a
+install : $(SHARED_LIB) $(STATIC_LIB)
 	install $^ $(INSTALL_LIB)
 	install $^ $(INSTALL_LIB)
 
 clean :
-	rm -rf libmtm.* mtproc ut-* $$(find . ../../lib -name "*.o")
+	rm -rf $(BASENAME)* mtproc ut-* $$(find . ../../lib -name "*.o")
 
 .PHONY : clean install
 
