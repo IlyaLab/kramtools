@@ -412,6 +412,9 @@ retry:
 
 	// ...so we only check for the 3rd if necessary (below).
 
+	// TODO: Here's where a specified stat class is reconciled with data 
+	// type. More to do in this regard...
+
 	switch( field_type ) {
 
 	case MTM_FIELD_TYPE_FLT:
