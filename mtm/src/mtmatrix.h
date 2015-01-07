@@ -79,7 +79,14 @@ typedef MTM_INT_T      *MTM_ROW_PTR;
   */
 struct mtm_descriptor {
 
-	unsigned int unused:8;
+	unsigned int unused:7;
+
+	/**
+	  * This bit flags any row that, for any reason, should be not be used
+	  * by the client. Currently, the only such reason is rows that are
+	  * categorical with >32 categories.
+	  */
+	unsigned int ignore:1;
 
 	/**
 	  * For both integral and floating-point features this is the primary

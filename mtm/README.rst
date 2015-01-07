@@ -19,7 +19,8 @@ canonical *statistical classes*:
 
 	1. boolean
 	2. categorical
-	3. ordinal
+	3. ordinal (Note: All references to "ordinal" below refer to planned
+			future functionality; currently there are only 3 classes.)
 	4. continuous
 
 The matrix is parsed and converted to a memory-resident binary form 
@@ -144,7 +145,7 @@ data which are often conflated:
 
 On the basis of:
 
-	1. the *cardinality* of possible scalar values [1]_ 
+	1. the *cardinality* of possible scalar values
 	2. whether or not the values are naturally ordered (or order-*able*).
 	3. whether or not *magnitudes* and *intervals* between values matter.
 
@@ -189,11 +190,12 @@ General observations on data representation
 ========================================================================
 
 Ordinal is typically associated with ranks in which cardinality
-equals sample size. Ordinal-categorical hybrids are possible--that
-is, a natural ordering may exist between the labels in categorical
-data, but choosing to treat it as categorical ignores this ordering.
-(An order can always be imposed on two values, so boolean data is
- always orderable.)
+equals sample size (unless there are ties).
+Ordinal-categorical hybrids are possible--that is, a natural ordering 
+may exist between the labels in categorical data, but choosing to treat
+it as categorical ignores this ordering.
+An order can always be imposed on two values, so boolean data is
+always orderable.
 
 Categorical data may be represented in any fashion at all--even as
 floating point values--provided the cardinality of the set of unique 
@@ -209,12 +211,14 @@ Floating-point numbers certainly *could* represent ordinal data, but
 use of floating-point implies magnitude matters.
 
 The above considerations demonstrate that
-**in software the statistical class is not uniquely determined by the
+**the statistical class is not uniquely determined by the
 type of the data, nor is the type dictated by statistical class**.
+When class is specified conventions dictate the type.
+When class is unspecified conventions allow inferrence of a reasonable
 Each merely constrains the other.
 When statistical class (intent) is known, it can drive an interpretation
-of data, and when class is unknown reasonable classes can be motivated
-by syntax.
+of data, and when class is unknown it can be sensibly inferred from
+from data type and heuristics or conventions.
 
 This library implements the following rules to interpret data.
 
@@ -237,8 +241,8 @@ boolean      Fields are treated as integers if possible (to preserve
              implicit order) Otherwise they are treated as strings.
 categorical  Fields are treated as strings regardless of their content.
 ordinal      Fields are required to contain integral data.
-continuous   Fields are treated as floats. Note that integers are 
-             parseable as floats.
+continuous   Fields are treated as floats. (Of course, integers are 
+             always parseable as floats.)
 ===========  ===============================================================
 
 A default function is also provided by the library that uses the first 
@@ -261,7 +265,7 @@ The first *two* characters must match the regular expression
 Inferring statistical class from type
 ========================================================================
 
-Because each row *is* by definition contains data of *one* type, then,
+Because by definition each row contains data of *one* type, then,
 whatever the syntactic *representation*, it must be possible to infer
 the type from the text.
 The _parseLine function inspects each field in turn and interprets that
@@ -313,7 +317,8 @@ provided that class will *always* constrain the interpretation of type
 it is inferred from type subject to the following rules:
 
 The following describes built-in *conventions* that derive statistical
-class from type.
+class from type:
+
 1.	string types are either categorical or boolean depending on cardinality
 2.	integer types are ordinal
 3.	floating-point types are numeric
@@ -348,11 +353,15 @@ Dependencies:
 TESTING
 ============================================================================
 
+TODO.
+
 ^^^^
 
 ============================================================================
 USAGE
 ============================================================================
+
+TODO.
 
 ^^^^
 

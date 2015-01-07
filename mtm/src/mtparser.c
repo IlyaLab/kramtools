@@ -263,11 +263,10 @@ static int _parseLine( char *line,
 			continue;
 		}
 
-		// For every line we will -not- know the field_type at this point
+		// For every line, we will -not- know the field_type at this point
 		// for at most one non-missing token. In other words, almost every
 		// time we reach this point field_type is known. Use of the goto thus
 		// obviates a constitutive conditional...justifying an ugly goto.
-
 retry:
 		switch( field_type ) {
 
@@ -288,12 +287,12 @@ retry:
 
 		case MTM_FIELD_TYPE_STR:
 			if( szs_insert( s->set, token, &(last_value_read.i) ) == SZS_TABLE_FULL )
-				return MTM_E_LIMITS;
+				return MTM_E_CARDINALITY;
 			// The hashset will only return SZS_TABLE_FULL when genuinely
 			// full, but, if s->max_categories was not itself a power of 2,
 			// s->set can hold > s->max_categories. Thus, another check...
 			if( szs_count( s->set ) > s->max_categories )
-				return MTM_E_LIMITS;
+				return MTM_E_CARDINALITY;
 			s->buf.cat[ count++ ] = last_value_read.i;
 			break;
 
@@ -370,10 +369,10 @@ retry:
 					count = 0;
 					do {
 						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL )
-							return MTM_E_LIMITS;
+							return MTM_E_CARDINALITY;
 						// See comment re: szs_insert elsewhere.
 						if( szs_count( s->set ) > s->max_categories )
-							return MTM_E_LIMITS;
+							return MTM_E_CARDINALITY;
 						s->buf.cat[ count++ ] = last_value_read.i;
 						if( pc == token) break;
 						pc += strlen(pc)+1;

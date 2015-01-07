@@ -48,5 +48,7 @@
 
 #define MTM_E_NO_ROW_LABELS   (-9)
 
+#define MTM_E_CARDINALITY     (-10)
+
 #endif
 
