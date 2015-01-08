@@ -173,7 +173,11 @@ static int _alloc_scratch( struct scratch *s,
 	// Hash table for counting categorical variables' categories.
 	// Failure can only be due to out-of-memory condition.
 
-	s->set = szs_create( max_allowed_categories,
+	// Notice: using column count for the string set means szs_insertion
+	// will never fail, but it's also potentially wasteful, since it's
+	// going to be rounded up to 2^ceil(log_2(column_count)).
+
+	s->set = szs_create( s->data_column_count,
 			0, // strdup not necessary
 			fnv_32_str, FNV1_32_INIT );
 	if( s->set == NULL ) {
@@ -286,13 +290,11 @@ retry:
 			break;
 
 		case MTM_FIELD_TYPE_STR:
-			if( szs_insert( s->set, token, &(last_value_read.i) ) == SZS_TABLE_FULL )
-				return MTM_E_CARDINALITY;
-			// The hashset will only return SZS_TABLE_FULL when genuinely
-			// full, but, if s->max_categories was not itself a power of 2,
-			// s->set can hold > s->max_categories. Thus, another check...
-			if( szs_count( s->set ) > s->max_categories )
-				return MTM_E_CARDINALITY;
+			if( szs_insert( s->set, token, &(last_value_read.i) ) < 0 )
+				errx( -1, _BUG, __FILE__, __LINE__ );
+			// Because I'm sizing the hashtable to accomodate a cardinality
+			// equal to the sample count, szs_insert cannot fail, or rather
+			// if it fails something else is badly broken.
 			s->buf.cat[ count++ ] = last_value_read.i;
 			break;
 
@@ -369,10 +371,8 @@ retry:
 					count = 0;
 					do {
 						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL )
-							return MTM_E_CARDINALITY;
-						// See comment re: szs_insert elsewhere.
-						if( szs_count( s->set ) > s->max_categories )
-							return MTM_E_CARDINALITY;
+							errx( -1, _BUG, __FILE__, __LINE__ );
+						// See comment above re: szs_insert.
 						s->buf.cat[ count++ ] = last_value_read.i;
 						if( pc == token) break;
 						pc += strlen(pc)+1;

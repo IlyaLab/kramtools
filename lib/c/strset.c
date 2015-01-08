@@ -248,6 +248,16 @@ void szs_destroy( void *ht ) {
 	free( t );
 }
 
+#ifdef UNIT_AUTO_TEST
+void szs_dump( FILE * ) {
+}
+
+int main( int argc, char *argv[] ) {
+	return EXIT_SUCCESS;
+}
+
+#endif
+
 #ifdef _UNIT_TEST_STRSET
 
 #include <stdio.h>

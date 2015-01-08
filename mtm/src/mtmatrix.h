@@ -79,14 +79,7 @@ typedef MTM_INT_T      *MTM_ROW_PTR;
   */
 struct mtm_descriptor {
 
-	unsigned int unused:7;
-
-	/**
-	  * This bit flags any row that, for any reason, should be not be used
-	  * by the client. Currently, the only such reason is rows that are
-	  * categorical with >32 categories.
-	  */
-	unsigned int ignore:1;
+	unsigned int unused:30;
 
 	/**
 	  * For both integral and floating-point features this is the primary
@@ -121,7 +114,7 @@ struct mtm_descriptor {
 	  * rely on:
 	  *            ( categories == 1 ) ==> ( constant == 1 )
 	  */
-	unsigned int categories:6;
+	unsigned short categories;
 
 	/**
 	  * For all feature types, a count of the missing values.
@@ -135,7 +128,7 @@ struct mtm_descriptor {
 	  *                          !!! WARNING !!!
 	  * 
 	  */
-	unsigned int missing:16;
+	unsigned short missing;
 };
 typedef struct mtm_descriptor mtm_descriptor_t;
 typedef const mtm_descriptor_t MTM_DESCRIPTOR_T;

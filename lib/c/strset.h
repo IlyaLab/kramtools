@@ -37,5 +37,9 @@ void   szs_clear( void * );
   */
 void   szs_destroy( void * );
 
+#ifdef UNIT_AUTO_TEST
+void   szs_dump( FILE * );
+#endif
+
 #endif
 
