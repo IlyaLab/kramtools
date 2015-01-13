@@ -370,7 +370,7 @@ retry:
 					pc = line;
 					count = 0;
 					do {
-						if( szs_insert( s->set, pc, &(last_value_read.i) ) == SZS_TABLE_FULL )
+						if( szs_insert( s->set, pc, &(last_value_read.i) ) < 0 )
 							errx( -1, _BUG, __FILE__, __LINE__ );
 						// See comment above re: szs_insert.
 						s->buf.cat[ count++ ] = last_value_read.i;

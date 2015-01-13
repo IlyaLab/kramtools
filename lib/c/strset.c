@@ -6,10 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifdef _DEBUG
-#include <stdio.h>
-#include <err.h>
-#endif
 
 #include "strset.h"
 
@@ -48,15 +44,28 @@ static int _power_of_2_upper_bound( int v ) {
   * Rehash all valid entries in the entry array. There is no reason why 
   * every entry that fit in the previous (half-sized) table should not go
   * in the new table.
+  * Warning: Disable strdup'ing temporarily
   */
 static int _rehash( struct entry *cur, int n, struct table *t ) {
+	int error = 0;
+	// Turn OFF string duplicating while rehashing...
+	const int DUPING = t->dup;
+	t->dup = 0;
+	// ...because either:
+	// 1. we weren't duplicating anyway, or
+	// 2. we're rehashing strings already duplicated once that we own!
+	// szs_insert doesn't know which of these is true; but we do here.
 	for(int i = 0; i < n; i++ ) {
 		if( cur[i].str != NULL ) {
-			if( szs_insert( t, cur[i].str, NULL ) != SZS_ADDED )
-				return -1;
+			if( szs_insert( t, cur[i].str, NULL ) != SZS_ADDED ) {
+				error = -1;
+				break;
+			}
 		}
 	}
-	return 0;
+	// WARNING: Don't return without resetting t->dup!
+	t->dup = DUPING;
+	return error;
 }
 
 
@@ -249,16 +258,128 @@ void szs_destroy( void *ht ) {
 }
 
 #ifdef UNIT_AUTO_TEST
-void szs_dump( FILE * ) {
+
+#include <stdio.h>
+#include "fnv/fnv.h"
+
+/**
+  * Sort the struct entries of the hash table such that all entries with
+  * valid strings precede all entries without strings (.str==NULL), and
+  * secondarily by tag values.
+  */
+static int _cmp_entry( const void *pvl, const void *pvr ) {
+
+	const struct entry *l = (const struct entry *)pvl;
+	const struct entry *r = (const struct entry *)pvr;
+	int result = 0;
+
+	if( l->str != NULL ) {
+		if( r->str != NULL ) {
+			assert( l->tagval != r->tagval );
+			result = (int)(l->tagval) - (int)(r->tagval);
+		} else
+			result = -1;
+	} else
+		result = r->str ? +1 : 0;
+
+	return result;
 }
 
 int main( int argc, char *argv[] ) {
-	return EXIT_SUCCESS;
+
+	int exit_status
+		= 0;
+	const int CAP
+		= argc > 1 ? atoi( argv[1] ) : 10;
+	const int DUP
+		= argc > 2 ? atoi( argv[2] ) : 1;
+	const int verbose
+		= (int)( getenv("VERBOSE") != NULL );
+	FILE *fp
+		= argc > 3
+		? fopen( argv[3], "r" )
+		: stdin;
+
+	char *line = NULL;
+	size_t blen = 0;
+	ssize_t llen;
+	void *h;
+
+	if( NULL == fp ) {
+		fprintf( stderr, "no input\n" );
+		exit(-1);
+	}
+
+	h = szs_create( CAP, DUP, fnv_32_str, FNV1_32_INIT );
+
+	while( exit_status == 0 
+			&& (llen = getline( &line, &blen, fp )) > 0 ) {
+		int tagval;
+		line[llen-1] = '\0'; // lop off the newline.
+retry:
+		switch( szs_insert( h, line, &tagval ) ) {
+		case SZS_ADDED:
+		case SZS_PRESENT:
+			if( verbose )
+				fprintf( stdout, "%s: OK(%d)\n", line, tagval );
+			break;
+
+		case SZS_ZERO_KEY:
+			exit_status = 2;
+			break;
+
+		case SZS_TABLE_FULL:
+			if( szs_grow( h ) )
+				exit_status = 3;
+			else
+				goto retry;
+			break;
+
+		default:
+			exit_status = 4;
+		}
+	}
+	if( line )
+		free( line );
+
+	fclose( fp );
+
+	if( exit_status == 0 ) {
+
+		const int N
+			= szs_count(h);
+		struct table *t
+			= (struct table*)h;
+		int i;
+
+		qsort( t->array, t->capacity, sizeof(struct entry), _cmp_entry );
+
+		// Verify in a table with N entries,...
+		// 1. they are tagged with values [0,n-1], and
+		// 2. no other non-null entries exist in the table.
+
+		for(i = 0; i < N; i++ ) {
+			fprintf( stdout, "%s\n", t->array[i].str );
+			if( i != t->array[i].tagval ) {
+				exit_status = 5;
+				goto EXIT;
+			}
+		}
+
+		for(     ; i < t->capacity; i++ ) {
+			if( t->array[i].str != NULL ) {
+				exit_status = 6;
+				goto EXIT;
+			}
+		}
+	}
+
+EXIT:
+	szs_destroy( h );
+	return exit_status;
 }
 
-#endif
-
-#ifdef _UNIT_TEST_STRSET
+#elif defined(_UNIT_TEST_STRSET)
 
 #include <stdio.h>
 #include <err.h>
