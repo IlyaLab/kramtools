@@ -1,0 +1,160 @@
+\input texinfo   @c -*-texinfo-*-
+@c %**start of header
+@setfilename pairwise.info
+@settitle Pairwise 1.0
+@c %**end of header
+
+@copying
+This is a short example of a complete Texinfo file.
+
+Copyright @copyright{} 2013 Free Software Foundation, Inc.
+@end copying
+
+@titlepage
+@title Pairwise
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@c Output the table of the contents at the beginning.
+@contents
+
+@ifnottex
+@node Top
+@top GNU Sample
+
+@insertcopying
+@end ifnottex
+
+@menu
+* Overview::    The rationals behind the design of this program
+				collection
+* Reporting::  
+* Options::     Options/flags common to all programs
+* Implementation notes::
+* Index::            Complete index.
+@end menu
+
+
+@node Overview
+@chapter Overview
+Foo
+
+@node Reporting
+@chapter Reporting
+
+Fail EARLY.
+
+@enumerate
+@item
+If either feature vector is categorical with too few/many categories
+the pair is aborted.
+If too few samples remain after filtering the pair is aborted.
+If either feature vector is categorical with too few/many categories
+AFTER FILTERING the pair is aborted.
+
+@item
+miscellany -- transpose, gencom, fldspec.py
+@end enumerate
+
+
+@cindex chapter, first
+
+@node Options
+@chapter Options
+
+@node Implementation notes
+@chapter Implementation notes
+
+Num accumulated samples in a vector, so reservation is
+advisable but pre-allocation is not necessary.
+
+Mix accumulated samples in both a vector and pre-allocated array
+for category counts.
+
+Cat accumulated samples directly in a matrix which must be
+pre-allocated.
+
+Because these objects are intended for re-used within iteration,
+pre-allocated data structures must be sized to accomodate "worst
+case" sample, but hints are given via init() prior to each use
+as to how much of allocation will actually be used within one analysis
+iteration. This applies to Mix and Cat, not Num. The *_capacity members
+which are const and set at construction time, concern absolute
+limits on storage. max_expected_* concern the range of category labels
+to expect in the current analysis iteration.
+
+Makes most sense for analysis_exec to detect data-value-independent 
+degeneracies--that is, degeneracies just concerning too few covariate
+pairs. The degenerate methods on the accumulators specifically concern
+data-value-DEPENEDENT degeneracy, e.g. constant numeric values, or
+only a single category.
+
+Moveover, analysis_exec detects two types of degeneracies:
+1) "early," determined by univariate features alone
+2) "late," determined after covariate accumulation
+	2a) content-independent: simply too few covariates
+	2b) content-dependent: single categories or const scalars
+
+Detection and handling of degeneracies is wrapped up with performance.
+For example, CatCovars calcs marginals progressively (within push),
+so detecting degeneracy after accumulation is fast. NumCovars::push could
+watch for at least 2 non-equal values, but result of degeneracy is
+less severe for correlation (that e.g. CatCovars where min/max category
+labels are sought that might not exist!).
+
+The size() method on each accumulator must NEVER fail.
+
+Note that accumulators' "complete" (or isDegen) methods are testing
+for feasibility of continuing calculations which is different from
+filtering for minimal -desired- sample counts.
+
+In general I'm not PRE-detecting numeric features with single repeated
+values because it necessarily involves a linear search. Of course, 
+worst case should be rare and best case (first two values non-equal)
+much more common, but letting this degeneracy propagate into calculation
+(to be caught there) is not bad.
+
+
+Also, given that arg_min_sample_count is >= 2, we need only compare to
+that parameter.
+
+Moreover, analysis_exec can fully partition input into the four states:
+0) both absent.
+1) absent, present
+2) present, absent
+3) both present
+The unused? locals should only be incremented when _waste? accumulators
+are NOT in used; otherwise there is redundant incrementing. The locals
+should be updated from the _waste? accumulators when possible.
+
+Basic strategy re: degeneracy, detect it as early as economical,
+probability calculation methods should ALWAYS return an indication of
+whether their results are trustable, auxiliary stat calcs (e.g. Spearman
+rho, may not). Generally, "bad" p-value should default to 1.0, and NaN
+is allowed to propagate everywhere else.
+
+Conflicting goals:
+output reduction
+multiple test correction
+compatibility with existing scripts
+
+Tests can be eliminated for redundancy.
+Numerical aberrations are now explicitly allowed to propagate to results. 
+
+Whether a pair is reported or not need a count of how many
+TESTS WERE PERFORMED for MTC.
+
+p-values were initialized to 1.0 so that tests that were unperformed
+for whatever reason would not pollute output; they would be cleanly
+filtered by the p-value thesholding of the output. However, a comparison
+between NaN and a threshold will also always be false and NaN is better
+to indicate uncomputed results since it doesn't look real.
+@node Index
+@unnumbered Index
+
+@printindex cp
+
+@bye
+
