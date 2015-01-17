@@ -1,10 +1,13 @@
 
+CFLAGS=-std=c99 -D_POSIX_C_SOURCE=200809L
 # iut: Interactive Unit Test
 # aut: Automated Unit Test
 
 iut_memmap : memmap.c
 	$(CC) -o $@ $(CFLAGS) -D_UNITTEST_MEMMAP_  $^
 
+aut_rank : rank.c
+	$(CC) -o $@ $(CFLAGS) -DAUTOUNIT_TEST_RANK  $^
 iut_rank : rank.c
 	$(CC) -o $@ $(CFLAGS) -D_UNITTEST_RANK_  $^
 

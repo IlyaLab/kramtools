@@ -200,8 +200,84 @@ int rank_floats_strided( float *base, const unsigned int N, int stride, int norm
 }
 
 
-#ifdef _UNITTEST_RANK_
+#ifdef AUTOUNIT_TEST_RANK
 
+#include <stdio.h>
+
+static int _execR( const char *cmd, int n, float *buf ) {
+	float *answer
+		= buf + n;
+	FILE *fp = popen( cmd, "r" );
+	if( fp ) {
+		char *line = NULL;
+		size_t n = 0;
+		int i = 0;
+		while( getline( &line, &n, fp ) > 0 ) {
+			sscanf( line, "%f\t%f\n", buf+i, answer+i );
+			//fprintf( stdout, "%f\t%f\n", buf[i], answer[i] );
+			++i;
+		}
+		if( line )
+			free( line );
+		pclose( fp );
+	} else {
+		fprintf( stderr, cmd );
+		return -1;
+	}
+	return 0;
+}
+
+static int _test( const char *cmd, int n, float *buf, float *scratch ) {
+
+	float *answer
+		= buf + n;
+
+	if( _execR( cmd, n, buf ) )
+		return -1;
+
+	rank_floats( buf, n, 0 /* don't normalize */, scratch );
+
+	for(int i = 0; i < n; i++ ) {
+		if( buf[i] != answer[i] ) {
+			fprintf( stdout, "%f\t != %f\n", buf[i], answer[i] );
+			return -1;
+		}
+	}
+	return 0;
+}
+
+
+int main( int argc, char *argv[] ) {
+
+	static char cmd[256];
+	const char *CMD_TEMPLATE
+		= "R --slave -e 'x<-round(runif(%d,0,%d));"
+		"write.table(cbind(x,rank(x)),stdout(),col.names=F,row.names=F,sep=\"\\t\")'";
+
+	const int N
+		= argc > 1 ? atoi(argv[1]) : 10;
+	const int MAX
+		= argc > 2 ? atoi(argv[2]) : 10;
+	int ntests
+		= argc > 3 ? atoi(argv[3]) : 1;
+	float *values
+		= calloc( 2*N, sizeof(float) );
+	void *workspace = rank_alloc( N );
+
+	sprintf( cmd, CMD_TEMPLATE, N, MAX );
+
+	while( ntests-- > 0 ) {
+		if( _test( cmd, N, values, workspace ) )
+			break;
+	}
+
+	rank_free( workspace );
+	free( values );
+
+	return 0;
+}
+
+#elif defined(_UNITTEST_RANK_)
 // A <- commandArgs( trailingOnly=TRUE );
 // N <- if(length(A) > 0 ) as.integer(A[[1]]) else 10;
 // f <- if(length(A) > 1 )            A[[2]]  else "foo.tab";
