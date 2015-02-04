@@ -16,7 +16,35 @@
 
 extern int mtm_sclass_by_prefix( const char *token );
 
-static void _dump( struct mtm_matrix *m, 
+static void _echo_header( struct mtm_matrix_header *h, FILE *fp ) {
+	fprintf( fp, "%s\n", h->sig );
+	fprintf( fp,
+		"     endian: %08x\n"
+		"    version: %08x\n"
+		"      flags: %08x\n"
+		"header_size: %d\n"
+		" datum_size: %d\n"
+		"       rows: %d\n"
+		"    columns: %d\n",
+		h->endian,
+		h->version,
+		h->flags,
+		h->header_size,
+		h->datum_size,
+		h->rows,
+		h->columns );
+		
+	for(int i = 0; i < S_COUNT; i++ ) {
+		const struct section_descriptor *s = h->section + i;
+		fprintf( fp, "%d: %016lx bytes @ %016lx\n",
+			i,
+			s->size,
+			s->offset );
+	}
+}
+
+
+static void _echo_matrix( struct mtm_matrix *m, 
 		const char *label_format,
 		const char *float_format, 
 		FILE *fp ) {
@@ -89,6 +117,7 @@ static int (*opt_interpret_type)( const char *token ) = mtm_sclass_by_prefix;
 static bool opt_include_md5     = false;
 #endif
 static bool opt_echo            = false;
+static bool opt_echo_header     = false;
 // This is the minimum precision that random.rb generates which
 // is the MOST we can assume is available...
 static const char *opt_float_format = "%.1e";
@@ -98,24 +127,27 @@ static int opt_verbosity = 0;
 static const char *USAGE = 
 "%s [ options ] [ <input file> ] [ <output file> ]\n"
 "Options:\n"
-"   --rownames | -r   do NOT expect input to have row names \n"
-"   --header   | -h   do NOT expect input to havea header \n"
+"   --nolabels | -r   do NOT expect input to have row names \n"
+"   --noheader | -h   do NOT expect input to havea header \n"
 "   --missing  | -m   set the \"missing data\" regex [ \"%s\" ]\n"
 "   --maxcats  | -k   set the maximum number of categories allowed \n"
 "                     categorical variables [%d]\n"
-"   --infer    | -A   infer statistical class from syntax\n"
+"   --infer    | -i   infer statistical class from syntax\n"
+#if 0
 "                     Uses prefix convention describe below by default.\n"
 "                     \"C:\" categorical\n"
 "                     \"B:\" boolean\n"
 "                     \"N:\" numeric/floating-point data\n"
-"Output options:\n"
-"  --echo      | -e   echo the parsed and validated matrix to stdout [%s]\n"
+#endif
 #ifdef HAVE_MD5
 "  --checksum  | -c   include the (MD5) checksum of the input[%s]\n"
 #endif
-"  --float     | -f   a C printf format string for floating point\n"
+"Output options:\n"
+"  --echo      | -E   echo the parsed and validated matrix to stdout [%s]\n"
+"  --header    | -H   echo the parsed and validated matrix to stdout [%s]\n"
+"  --float     | -F   a C printf format string for floating point\n"
 "                     display [\"%s\"]\n"
-"  --label     | -l   a C printf format string for display of the\n"
+"  --label     | -L   a C printf format string for display of the\n"
 "                     row name and descriptor (see Notes). [\"%s\"]\n"
 "  --verbosity | -v verbosity [%d]\n"
 "Notes:\n"
@@ -139,6 +171,7 @@ static void _print_usage( const char *exename, FILE *fp ) {
 		opt_include_md5 ? _T : _F,
 #endif
 		opt_echo ? _T : _F,
+		opt_echo_header ? _T : _F,
 		opt_float_format,
 		opt_label_format,
 		opt_verbosity );
@@ -161,24 +194,24 @@ int main( int argc, char *argv[] ) {
 	do {
 		static const char *CHAR_OPTIONS 
 #ifdef HAVE_MD5
-			= "rhm:k:Aecf:l:v:?";
+			= "rhm:k:icEHF:L:v:?";
 #else
-			= "rhm:k:Aef:l:v:?";
+			= "rhm:k:iEHF:L:v:?";
 #endif
 		static struct option LONG_OPTIONS[] = {
 
-			{"rownames",   0,0,'r'},
-			{"header",     0,0,'h'},
+			{"nolabels",   0,0,'r'},
+			{"noheader",   0,0,'h'},
 			{"missing",    1,0,'m'},
 			{"maxcats",    1,0,'k'},
-			{"infer",      0,0,'A'},
-
-			{"echo",       0,0,'e'},
+			{"infer",      0,0,'i'},
 #ifdef HAVE_MD5
 			{"checksum",   0,0,'c'},
 #endif
-			{"float",      1,0,'f'},
-			{"label",      1,0,'l'},
+			{"echo",       0,0,'E'},
+			{"header",     0,0,'H'},
+			{"float",      1,0,'F'},
+			{"label",      1,0,'L'},
 
 			{"verbosity",  1,0,'v'},
 			{ NULL,        0,0, 0 }
@@ -192,13 +225,14 @@ int main( int argc, char *argv[] ) {
 		case 'h': opt_expect_header   = false;        break;
 		case 'm': opt_missing_marker  = optarg;       break;
 		case 'k': opt_max_categories  = atoi(optarg); break;
-		case 'A': opt_interpret_type  = NULL;         break;
-		case 'e': opt_echo            = true;         break;
+		case 'i': opt_interpret_type  = NULL;         break;
 #ifdef HAVE_MD5
 		case 'c': opt_include_md5     = true;         break;
 #endif
-		case 'f': opt_float_format = optarg;          break;
-		case 'l': opt_label_format = optarg;          break;
+		case 'E': opt_echo            = true;         break;
+		case 'H': opt_echo = opt_echo_header = true;  break;
+		case 'F': opt_float_format = optarg;          break;
+		case 'L': opt_label_format = optarg;          break;
 
 		case 'v':
 			opt_verbosity = atoi( optarg );
@@ -289,14 +323,19 @@ int main( int argc, char *argv[] ) {
 		memset( &hdr, 0, sizeof(hdr) );
 
 		if( MTM_OK == mtm_load_matrix( fp_i, &mat, &hdr ) ) {
-			_dump( &mat, opt_label_format, opt_float_format, fp_o );
+
+			if( opt_echo_header )
+				_echo_header( &hdr, fp_o );
+			else
+				_echo_matrix( &mat, opt_label_format, opt_float_format, fp_o );
 #ifdef HAVE_MD5
 			if( opt_include_md5 ) {
 				fprintf( stdout, "# MD5: %s\n", m.md5 );
 			}
 #endif
 			mat.destroy( &mat );
-		}
+		} else
+			warnx( "failed loading %s", fname_i );
 
 	} else {
 

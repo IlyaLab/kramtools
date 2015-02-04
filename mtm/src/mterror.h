@@ -52,5 +52,7 @@
 
 #define MTM_E_CARDINALITY     (-10)
 
+#define MTM_E_NOMEM           (-11)
+
 #endif
 

@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <err.h>
 #include <alloca.h>
 
 #include "mtmatrix.h"
@@ -33,6 +34,7 @@ int mtm_load_header( FILE *fp, struct mtm_matrix_header *header ) {
 	if( fread( header, sizeof(struct mtm_matrix_header), 1, fp ) != 1 ) {
 		return MTM_E_IO;
 	}
+	return MTM_OK;
 }
 
 
@@ -40,7 +42,7 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 
 	char *pc = NULL;
 	struct stat info;
-	size_t required;
+	size_t allocation, tailsize;
 
 	if( fstat( fileno( fp ), &info ) )
 		return MTM_E_IO;
@@ -61,31 +63,34 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 	/**
 	  * The header is not persisted (in RAM, as part of the struct 
 	  * mtm_matrix), so we can subtract the size of its section from the
-	  * required memory.
+	  * tailsize memory.
 	  */
 	{
 		const int LAST_SECTION
 			= (header->flags & MTMHDR_ROW_LABELS_PRESENT) != 0
 			? S_ROWMAP
 			: S_DESCRIPTOR;
-		required
+		tailsize
 			= header->section[ LAST_SECTION ].offset
 			+ header->section[ LAST_SECTION ].size
 			- header->section[ S_MATRIX ].offset;// because the header need not persist
 	}
 #else
-	required = info.st_size - header->section[ S_MATRIX ].offset;
+	tailsize
+		= info.st_size - header->section[ S_MATRIX ].offset;
+	allocation
+		= page_aligned_ceiling( tailsize );
 #endif
 
-	if( posix_memalign( (void**)&pc, RT_PAGE_SIZE, required ) == 0 ) {
+	if( posix_memalign( (void**)&pc, RT_PAGE_SIZE, allocation ) == 0 ) {
 
 		const size_t SIZEOF_HEADER_SECTION
-			= header->section[ S_MATRIX ].offset;
+			= page_aligned_ceiling( header->section[ S_MATRIX ].offset );
 
 		if( fseek( fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
 			return MTM_E_IO;
 
-		if( fread( pc, sizeof(char), required, fp ) != required ) {
+		if( fread( pc, sizeof(char), tailsize, fp ) != tailsize ) {
 			free( pc );
 			return MTM_E_IO;
 		}
@@ -115,6 +120,10 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 
 		matrix->destroy = mtm_free_matrix;
 		matrix->storage = pc;
+
+	} else {
+		warnx( "failed allocating RAM in %s", __func__ );
+		return MTM_E_NOMEM;
 	}
 
 	if( matrix->row_names != NULL && matrix->row_map != NULL )

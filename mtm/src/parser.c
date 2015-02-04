@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <string.h>
 #include <sys/sendfile.h>
+#ifdef _DEBUG
+#include <sys/types.h>   // for lseek
+#include <unistd.h>      // for lseek
+#endif
 #include <errno.h>
 #include <err.h>
 #include <assert.h>
@@ -466,7 +470,7 @@ static int _count_columns( const char *pc ) {
 static void _pad_to_pagesize( FILE *fp ) {
 	if( RT_PAGE_SIZE == 0 )
 		page_aligned_ceiling(0); // just to initialize RT_PAGE_SIZE.
-	while( ftell(fp) & RT_PAGE_SIZE )
+	while( ftell(fp) & RT_PAGE_MASK )
 		fputc( 0, fp );
 }
 
@@ -496,7 +500,7 @@ int mtm_parse( FILE *input,
 		FILE *fout, // may be null
 		struct mtm_matrix *m ) {
 
-	const size_t MATRIX_OFFSET
+	const size_t SIZEOF_HEADER_SECTION
 		= page_aligned_ceiling(sizeof(struct mtm_matrix_header));
 	const int verbosity
 		= MTM_VERBOSITY_MASK & flags;
@@ -539,7 +543,7 @@ int mtm_parse( FILE *input,
 	  * Either way the file pointer must be pre-positioned to skip the
 	  * header.
 	  */
-	if( fseek( final_fp, MATRIX_OFFSET, SEEK_SET ) )
+	if( fseek( final_fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
 		return MTM_E_IO;
 
 	memset( &s, 0, sizeof(struct scratch));
@@ -720,7 +724,7 @@ int mtm_parse( FILE *input,
 		  */
 
 		hdr.section[ S_MATRIX ].offset
-			= MATRIX_OFFSET;
+			= SIZEOF_HEADER_SECTION;
 		hdr.section[ S_MATRIX ].size
 			= ftell( final_fp )
 			- hdr.section[ S_MATRIX ].offset;
@@ -750,15 +754,23 @@ int mtm_parse( FILE *input,
 
 		for(int i = S_DESCRIPTOR; i < S_COUNT; i++ ) {
 			if( s.cache[ i ] ) {
-				const size_t FINAL_OFF = lseek(fileno( final_fp ),0,SEEK_CUR);
 				_pad_to_pagesize( final_fp );
-				assert( FINAL_OFF == ftell(final_fp) );
 				hdr.section[ i ].offset = ftell( final_fp );
 				sendfile(
 					fileno( final_fp ),
 					fileno( s.cache[i] ),
 					NULL,
 					hdr.section[i].size );
+				// Need to keep the C library FILE* in sync with the
+				// preceding manipulation of the lower-level file.
+				// This is one way to do it...
+				fseek( final_fp, 
+					lseek( fileno( final_fp ), 0, SEEK_CUR ),
+					SEEK_SET );
+#ifdef _DEBUG
+				printf( "fd@%ld\n", lseek(fileno( final_fp ),0,SEEK_CUR) );
+				printf( "fp@%ld\n", ftell(        final_fp )             );
+#endif
 			}
 		}
 
@@ -867,6 +879,9 @@ int mtm_parse( FILE *input,
 				m->destroy = mtm_free_matrix;
 				m->storage = blob;
 			}
+		} else {
+			warnx( "failed allocating RAM in %s", __func__ );
+			return MTM_E_NOMEM;
 		}
 
 		s.cache[S_MATRIX] = NULL;
