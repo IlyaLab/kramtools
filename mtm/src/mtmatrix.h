@@ -30,6 +30,11 @@
 extern "C" {
 #endif
 
+/**
+  * Forward declarations
+  */
+struct mtm_matrix_header;
+
 #ifdef HAVE_LARGE_FORM
 typedef unsigned long   mtm_int_t;
 typedef const mtm_int_t MTM_INT_T;
@@ -237,8 +242,8 @@ int mtm_parse( FILE *input,
 		const char *missing_data_regex,
 		int max_allowed_categories,
 		MTM_ROW_LABEL_INTERPRETER,
-		struct mtm_matrix *m
-		);
+		FILE *fout, // may be null
+		struct mtm_matrix *m);
 
 /**
   * The immediate motivation for this library is pairwise analysis of
@@ -262,6 +267,8 @@ const char *mtm_sclass_name( unsigned int );
 
 extern const char *mtm_default_NA_regex;
 
+int mtm_load_header( FILE *fp, struct mtm_matrix_header *header );
+int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_header *header );
 #ifdef __cplusplus
 }
 #endif

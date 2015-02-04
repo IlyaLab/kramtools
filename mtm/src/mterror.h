@@ -2,6 +2,8 @@
 #ifndef _mterror_h_
 #define _mterror_h_
 
+#define MTM_OK            (0)
+
 #define MTM_E_GENERIC    (-1)
 /**
   * Unexpected type

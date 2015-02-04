@@ -3,12 +3,11 @@
   * See README.rst for format details.
   */
 
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <ctype.h>
+#include <sys/sendfile.h>
 #include <errno.h>
 #include <err.h>
 #include <assert.h>
@@ -25,10 +24,12 @@
 #include "syspage.h"
 #include "strset.h"
 #include "toktype.h"
+#include "mtheader.h"
 #include "mtmatrix.h"
 #include "mtsclass.h"
 #include "mterror.h"
 
+extern void mtm_free_matrix( struct mtm_matrix *m );
 extern int mtm_sclass_by_prefix( const char *token );
 extern int cardinality(
 		const unsigned int *buf, int len, int largest_of_interest, const unsigned int NA );
@@ -62,18 +63,6 @@ static char COMMENT_PREFIX = '#';
   */
 
 
-/**
-  * This struct contains -all- the temporary buffers, caches, etc. required
-  * for parsing...localized in one struct for (de)allocation as a unit.
-  */
-enum Cache {
-	MATRIX_CACHE,     // Order matters! ...because _alloc_scratch only
-	DESCRIPTOR_CACHE, // allocates the first 2 caches when row names
-	ROWID_CACHE,      // are not going to be used.
-	ROWMAP_CACHE,
-	CACHE_COUNT
-};
-
 struct scratch {
 
 	int data_column_count;
@@ -95,17 +84,11 @@ struct scratch {
 	void *set;
 
 	/**
-	  * tmp files to contain variable (and unpredictably!)-sized arrays.
+	  * Temp files to contain unpredictably-sized arrays, each of which
+	  * corresponds to one of the data sections in struct mtm_matrix_header. 
+	  * NOTE THAT THE ONE INDEXED BY S_MATRIX IS NOT USED.
 	  */
-
-	FILE *cache[ CACHE_COUNT ];
-};
-
-static const char *BLOCK_NAMES[] = {
-	"    matrix",
-	"descriptor",
-	" row names",
-	"   row map"
+	FILE *cache[ S_COUNT ];
 };
 
 static void _free_scratch( struct scratch *s ) {
@@ -115,8 +98,8 @@ static void _free_scratch( struct scratch *s ) {
 	if( s->set )
 		szs_destroy( s->set );
 
-	for(int i = 0; i < CACHE_COUNT; i++ ) {
-		if( s->cache[i] )
+	for(int i = 0; i < S_COUNT; i++ ) {
+		if( s->cache[i] != NULL )
 			fclose( s->cache[i] );
 	}
 
@@ -133,15 +116,8 @@ static void _free_scratch( struct scratch *s ) {
   */
 static int _alloc_scratch( struct scratch *s,
 		int max_allowed_categories,
-		bool allocate_row_id_caches,
+		bool need_row_caches,
 		int verbosity ) {
-
-	const int cache_count
-		= allocate_row_id_caches
-		? CACHE_COUNT
-		: 2;
-
-	int i;
 
 	assert( sizeof(mtm_int_t) == sizeof(mtm_fp_t) );
 	assert( s->data_column_count > 1 );
@@ -157,17 +133,22 @@ static int _alloc_scratch( struct scratch *s,
 		goto failure;
 	}
 
-	// Temp file caches
+	// Temp file caches. MATRIX was allocated above this scope.
+	// We always need DESCRIPTOR and may or may not need ROW caches.
 
-	for(i = 0; i < cache_count; i++ ) {
-		s->cache[i] = tmpfile();
-		if( s->cache[i] == NULL )
-			break;
-	}
-	if( i < cache_count ) {
-		if( verbosity > 0 )
-			warn( "%s: creating tmp file cache: %s:%d\n", MTMLIB, __FILE__, __LINE__ );
+	s->cache[ S_DESCRIPTOR ] = tmpfile();
+	if( s->cache[ S_DESCRIPTOR ] == NULL )
 		goto failure;
+
+	if( need_row_caches ) {
+
+		s->cache[ S_ROWID  ] = tmpfile();
+		if( s->cache[ S_ROWID ] == NULL )
+			goto failure;
+
+		s->cache[ S_ROWMAP ] = tmpfile();
+		if( s->cache[ S_ROWMAP ] == NULL )
+			goto failure;
 	}
 
 	// Hash table for counting categorical variables' categories.
@@ -482,16 +463,11 @@ static int _count_columns( const char *pc ) {
 }
 
 
-/**
-  * The parser allocates the matrix as one large memory blob, so
-  * this destroyer is particularly simple.
-  */
-static void _free_matrix( struct mtm_matrix *m ) {
-	if( m ) {
-		if( m->storage )
-			free( m->storage );
-		m->storage = NULL;
-	}
+static void _pad_to_pagesize( FILE *fp ) {
+	if( RT_PAGE_SIZE == 0 )
+		page_aligned_ceiling(0); // just to initialize RT_PAGE_SIZE.
+	while( ftell(fp) & RT_PAGE_SIZE )
+		fputc( 0, fp );
 }
 
 
@@ -517,8 +493,11 @@ int mtm_parse( FILE *input,
 		const char *missing_data_regex,
 		int max_allowed_categories,
 		int (*infer_stat_class)(const char *),
+		FILE *fout, // may be null
 		struct mtm_matrix *m ) {
 
+	const size_t MATRIX_OFFSET
+		= page_aligned_ceiling(sizeof(struct mtm_matrix_header));
 	const int verbosity
 		= MTM_VERBOSITY_MASK & flags;
 	const bool EXPECT_ROW_NAMES
@@ -539,11 +518,30 @@ int mtm_parse( FILE *input,
 	struct scratch s;
 	struct mtm_descriptor d;
 
+	/**
+	  * If caller wants the binary result stored in a file, <fout> should
+	  * be non-NULL. In this case the data will be written directly into
+	  * the file, bypassing tmp files altogether.
+	  */
+
+	FILE *final_fp = fout ? fout : tmpfile();
+
 #ifdef HAVE_MD5
 	md5_state_t hashstate;
 	md5_byte_t checksum[ MD5_DIGEST_LENGTH ];
 	md5_init( &hash_state );
 #endif
+
+	if( final_fp == NULL )
+		return MTM_E_IO;
+
+	/**
+	  * Either way the file pointer must be pre-positioned to skip the
+	  * header.
+	  */
+	if( fseek( final_fp, MATRIX_OFFSET, SEEK_SET ) )
+		return MTM_E_IO;
+
 	memset( &s, 0, sizeof(struct scratch));
 
 	/**
@@ -603,7 +601,8 @@ int mtm_parse( FILE *input,
 		if( llen == 0 || line[0] == COMMENT_PREFIX )
 			continue;
 
-		// We have a "real" line. If it's the first infer column count.
+		// We have a non-comment line. If it's the first, we have some setup
+		// to do...
 
 		if( s.data_column_count == 0 ) {
 
@@ -618,7 +617,8 @@ int mtm_parse( FILE *input,
 				econd = MTM_E_SYS;
 				break;
 			}
-			if( EXPECT_HEADER /* i.e. 1st "real" line is header */ )
+
+			if( EXPECT_HEADER /* i.e. 1st non-comment line is header */ )
 				continue; // no further processing on this line.
 		}
 
@@ -643,14 +643,14 @@ int mtm_parse( FILE *input,
 			if( PRESERVE_ROWNAMES ) {
 				const struct mtm_row_id srn = {
 					fnum,
-					(const char*)ftell(s.cache[ROWID_CACHE])
+					(const char*)ftell(s.cache[S_ROWID])
 				};
 				const int NCHAR
 					= pc-line; // include the NUL terminator!
-				if( fwrite( line, sizeof(char), NCHAR, s.cache[ROWID_CACHE] )
+				if( fwrite( line, sizeof(char), NCHAR, s.cache[S_ROWID] )
 						!= NCHAR
 					||
-					fwrite( &srn, sizeof(struct mtm_row_id), 1, s.cache[ROWMAP_CACHE] )
+					fwrite( &srn, sizeof(struct mtm_row_id), 1, s.cache[S_ROWMAP] )
 						!= 1 ) {
 					econd = MTM_E_IO;
 					break;
@@ -667,15 +667,18 @@ int mtm_parse( FILE *input,
 
 		/**
 		  * Finally write out the converted row and its descriptor.
+		  * Note that order matters in the following because the ostensibly
+		  * two caches may, in fact, be the same file and we always want the
+		  * descriptor to be a prefix on a row when that's the case.
 		  */
 
-		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, s.cache[MATRIX_CACHE] )
-				!= s.data_column_count ) {
+		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.cache[S_DESCRIPTOR] )
+				!= 1 ) {
 			econd = MTM_E_IO;
 			break;
 		}
-		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.cache[DESCRIPTOR_CACHE] )
-				!= 1 ) {
+		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, final_fp )
+				!= s.data_column_count ) {
 			econd = MTM_E_IO;
 			break;
 		}
@@ -691,26 +694,115 @@ int mtm_parse( FILE *input,
 #endif
 
 	/**
-	  * Reconstitute the matrix in RAM from the tmpfile caches.
+	  * If a file output was requested (<fout> was non-NULL), final_fp *is*
+	  * fout, and the binary format should be built in there. That is, we
+	  * consolidate the caches into that one file and prepend a header.
 	  */
+
+	if( fout ) {
+
+		struct mtm_matrix_header hdr;
+		memset( &hdr, 0, sizeof(struct mtm_matrix_header) );
+
+		memcpy( hdr.sig, MTM_SIGNATURE, sizeof(hdr.sig) );
+		hdr.endian      = 0x04030201;
+		hdr.version     = 0x01000000;
+		hdr.flags       = PRESERVE_ROWNAMES ? MTMHDR_ROW_LABELS_PRESENT : 0;
+		hdr.header_size = sizeof(struct mtm_matrix_header);
+		hdr.datum_size  = sizeof(mtm_int_t);
+		hdr.rows        = fnum;
+		hdr.columns     = s.data_column_count;
+
+		/**
+		  * The sizes of each section are the current file offsets of the
+		  * corresponding caches (except the S_MATRIX section which needs
+		  * the header block subtracted).
+		  */
+
+		hdr.section[ S_MATRIX ].offset
+			= MATRIX_OFFSET;
+		hdr.section[ S_MATRIX ].size
+			= ftell( final_fp )
+			- hdr.section[ S_MATRIX ].offset;
+
+		// The other caches are simple (no header prefixes).
+
+		hdr.section[ S_DESCRIPTOR ].size
+			= ftell( s.cache[ S_DESCRIPTOR ] );
+		rewind( s.cache[ S_DESCRIPTOR ] );
+
+		// Row label caches may not even be present...
+
+		if( s.cache[ S_ROWID ] ) {
+			hdr.section[ S_ROWID ].size
+				= ftell( s.cache[ S_ROWID ] );
+			rewind( s.cache[ S_ROWID ] );
+		}
+
+		if( s.cache[ S_ROWMAP ] ) {
+			hdr.section[ S_ROWMAP ].size
+				= ftell( s.cache[ S_ROWMAP ] );
+			rewind( s.cache[ S_ROWMAP ] );
+		}
+
+		// Copy each non-empty cache into the file sequentially
+		// and beginning on page boundaries.
+
+		for(int i = S_DESCRIPTOR; i < S_COUNT; i++ ) {
+			if( s.cache[ i ] ) {
+				const size_t FINAL_OFF = lseek(fileno( final_fp ),0,SEEK_CUR);
+				_pad_to_pagesize( final_fp );
+				assert( FINAL_OFF == ftell(final_fp) );
+				hdr.section[ i ].offset = ftell( final_fp );
+				sendfile(
+					fileno( final_fp ),
+					fileno( s.cache[i] ),
+					NULL,
+					hdr.section[i].size );
+			}
+		}
+
+#ifdef HAVE_MD5
+		for(int i = 0; i < MD5_DIGEST_LENGTH; i++ )
+			sprintf( hdr.md5 + 2*i, "%02x", checksum[i] );
+		hdr.md5[ MD5_DIGEST_LENGTH*2 ] = 0;
+#endif
+		rewind( final_fp );
+		fwrite( &hdr, sizeof(hdr), 1, final_fp );
+		_pad_to_pagesize( final_fp );
+#if 0
+		// If caller *also* wants a RAM resident matrix, we can load it from
+		// the file we just created by the standard route, or take a more
+		// efficient approach (further below). Leaving the more efficient in
+		// place for now because it's tested!
+
+		if( m ) {
+			rewind( final_fp );
+			mtm_load( final_fp, m, NULL );
+		}
+#endif
+	}
 
 	if( m ) {
 
 		size_t    sizeof_part[4];
 		size_t pa_sizeof_part[4];
-		char *blob;
+		char *blob = NULL;
+		size_t blobsize = 0;
 
 		memset(    sizeof_part, 0, sizeof(   sizeof_part) );
 		memset( pa_sizeof_part, 0, sizeof(pa_sizeof_part) );
 		memset(              m, 0, sizeof(struct mtm_matrix) );
 
+		s.cache[ S_MATRIX ] = final_fp; // ...simplifies the next few lines.
+
 		// Determine the file sizes of each cache and total size
 
-		for(int i = 0; i < CACHE_COUNT; i++ ) {
+		for(int i = 0; i < S_COUNT; i++ ) {
 			if( s.cache[i] ) {
 				sizeof_part[i]    = ftell( s.cache[i] );
 				pa_sizeof_part[i] = page_aligned_ceiling( sizeof_part[i] );
-				m->size          += pa_sizeof_part[i];
+				blobsize         += pa_sizeof_part[i];
 #ifdef _DEBUG
 				if( verbosity > 0 ) {
 					fprintf( stderr, "%s: cache %d: %ld bytes on disk, %ld bytes in RAM\n",
@@ -723,15 +815,15 @@ int mtm_parse( FILE *input,
 #ifdef _DEBUG
 		if( verbosity > 0 ) {
 			fprintf( stderr, "%s: %d row X %d column matrix, sizeof memory-resident rep is %ld\n",
-				MTMLIB, fnum, s.data_column_count, m->size );
+				MTMLIB, fnum, s.data_column_count, blobsize );
 		}
 #endif
 
-		if( posix_memalign( (void**)&blob, RT_PAGE_SIZE, m->size ) == 0 ) {
+		if( posix_memalign( (void**)&blob, RT_PAGE_SIZE, blobsize ) == 0 ) {
 
 			int i;
 			char *ptr = blob;
-			for(i = 0; i < CACHE_COUNT; i++ ) {
+			for(i = 0; i < S_COUNT; i++ ) {
 				if( s.cache[i] ) { // ignore ununsed caches
 
 					// Load the cache back into RAM...
@@ -744,22 +836,22 @@ int mtm_parse( FILE *input,
 					}
 #ifdef _DEBUG
 					if( verbosity > 2 )
-						fprintf( stderr, "%s: %s <= %p (%ld bytes)\n",
-							MTMLIB, BLOCK_NAMES[i], ptr, sizeof_part[i] );
+						fprintf( stderr, "%s: %d <= %p (%ld bytes)\n",
+							MTMLIB, i, ptr, sizeof_part[i] );
 #endif
 					// ...and update the matrix pointer.
 
 					switch( i ) {
-					case MATRIX_CACHE:
+					case S_MATRIX:
 						m->data      = (mtm_int_t *)ptr;
 						break;
-					case DESCRIPTOR_CACHE:
+					case S_DESCRIPTOR:
 						m->prop      = (struct mtm_descriptor *)ptr;
 						break;
-					case ROWID_CACHE:
+					case S_ROWID:
 						m->row_names = (const char *)ptr;
 						break;
-					case ROWMAP_CACHE:
+					case S_ROWMAP:
 						m->row_map   = (struct mtm_row_id *)ptr;
 						break;
 					default:
@@ -768,14 +860,16 @@ int mtm_parse( FILE *input,
 					ptr += pa_sizeof_part[i];
 				}
 			}
-			if( i < CACHE_COUNT ) {
+			if( i < S_COUNT ) {
 				free( blob );
 				blob = NULL;
 			} else {
-				m->destroy = _free_matrix;
+				m->destroy = mtm_free_matrix;
 				m->storage = blob;
 			}
 		}
+
+		s.cache[S_MATRIX] = NULL;
 
 		m->rows    = fnum;
 		m->columns = s.data_column_count;
@@ -798,9 +892,4 @@ int mtm_parse( FILE *input,
 
 	return econd;
 }
-
-
-#ifdef _UNIT_TEST_PARSE
-#error "mtproc implemented by main.c is the unit test of this module"
-#endif
 

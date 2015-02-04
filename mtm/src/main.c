@@ -3,51 +3,18 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>    // isnan
-#include <ctype.h>   // toupper
 #include <string.h>
+#include <unistd.h>
 #include <getopt.h>
+#include <assert.h>
 #include <err.h>
 
 #include "syspage.h"
 #include "mtmatrix.h"
 #include "mtheader.h"
+#include "mterror.h"
 
 extern int mtm_sclass_by_prefix( const char *token );
-
-#ifdef HAVE_BINARY_PERSISTENT_FORMAT
-static int _save( struct mtm_matrix *m, FILE *fp ) {
-
-	const size_t BASE
-		= page_aligned_ceiling( sizeof(struct mtm_matrix_header) );
-	struct mtm_matrix_header hdr;
-	memset( &hdr, 0, sizeof(hdr) );
-
-	memcpy( hdr.sig, "MULTIMAT", 8 );
-	hdr.endian  = 0x04030201;
-	hdr.version = 0x00020000;
-	hdr.header_size = sizeof(struct mtm_matrix_header);
-	hdr.datum_size  = sizeof(mtm_int_t);
-	hdr.rows    = m->rows;
-	hdr.columns = m->columns;
-
-/*
-	hdr.off_data     = BASE;
-	hdr.off_descrip  = BASE + (char*)m->prop - (char*)m->data;
-	hdr.off_string   = hdr.off_descrip + m->row_names - (char*)m->prop;
-	hdr.off_rowmap   = hdr.off_string + ;
-*/
-	//hdr.flags;        // none defined yet
-
-	memcpy( hdr.md5, checksum, 32 );
-
-	if( fwrite( &hdr, sizeof(struct mtm_matrix_header), 1, fp ) != 1 )
-		return -1;
-	if( fwrite( m->data, m->size, 1, fp ) != 1 )
-		return -1;
-	return 0;
-}
-#endif
-
 
 static void _dump( struct mtm_matrix *m, 
 		const char *label_format,
@@ -126,11 +93,10 @@ static bool opt_echo            = false;
 // is the MOST we can assume is available...
 static const char *opt_float_format = "%.1e";
 static const char *opt_label_format = "%s\t%d:%d:%d:%d";
-static char opt_binary_file[ FILENAME_MAX+1 ];
 static int opt_verbosity = 0;
 
 static const char *USAGE = 
-"%s [ options ] < base_filenames\n"
+"%s [ options ] [ <input file> ] [ <output file> ]\n"
 "Options:\n"
 "   --rownames | -r   do NOT expect input to have row names \n"
 "   --header   | -h   do NOT expect input to havea header \n"
@@ -138,7 +104,10 @@ static const char *USAGE =
 "   --maxcats  | -k   set the maximum number of categories allowed \n"
 "                     categorical variables [%d]\n"
 "   --infer    | -A   infer statistical class from syntax\n"
-"                     Use ISB prefix convention on row labels by default.\n"
+"                     Uses prefix convention describe below by default.\n"
+"                     \"C:\" categorical\n"
+"                     \"B:\" boolean\n"
+"                     \"N:\" numeric/floating-point data\n"
 "Output options:\n"
 "  --echo      | -e   echo the parsed and validated matrix to stdout [%s]\n"
 #ifdef HAVE_MD5
@@ -148,11 +117,11 @@ static const char *USAGE =
 "                     display [\"%s\"]\n"
 "  --label     | -l   a C printf format string for display of the\n"
 "                     row name and descriptor (see Notes). [\"%s\"]\n"
-"  --output    | -o   name of file to receive binary representation\n"
-"                     of the input matrix. This is written only if\n"
-"                     an output name is provided.\n"
 "  --verbosity | -v verbosity [%d]\n"
 "Notes:\n"
+"1. The output filename is only optional with \"echoing\" an already-\n"
+"   preprocessed matrix (for testing). Otherwise, an output filename\n"
+"   is required.\n"
 #ifdef _DEBUG
 "This is a _DEBUG build.\n"
 #endif
@@ -166,7 +135,6 @@ static void _print_usage( const char *exename, FILE *fp ) {
 		exename,
 		opt_missing_marker,
 		opt_max_categories,
-
 #ifdef HAVE_MD5
 		opt_include_md5 ? _T : _F,
 #endif
@@ -179,22 +147,23 @@ static void _print_usage( const char *exename, FILE *fp ) {
 
 int main( int argc, char *argv[] ) {
 
-	unsigned int flags = 0;
-	FILE *input = stdin;
+	const char *STDIN  = "stdin";
+	const char *STDOUT = "stdout";
 	int errnum;
-	const char *FNAME = NULL;
-	struct mtm_matrix m;
+
+	const char *fname_i = STDIN;
+	FILE          *fp_i = stdin;
+	const char *fname_o = STDOUT;
+	FILE          *fp_o = stdout;
 
 	opt_missing_marker = mtm_default_NA_regex;
-	memset( opt_binary_file, 0, sizeof(opt_binary_file) );
-	memset( &m, 0, sizeof(struct mtm_matrix) );
 
 	do {
 		static const char *CHAR_OPTIONS 
 #ifdef HAVE_MD5
-			= "rhm:k:Aecf:l:o:v:?";
+			= "rhm:k:Aecf:l:v:?";
 #else
-			= "rhm:k:Aef:l:o:v:?";
+			= "rhm:k:Aef:l:v:?";
 #endif
 		static struct option LONG_OPTIONS[] = {
 
@@ -210,7 +179,6 @@ int main( int argc, char *argv[] ) {
 #endif
 			{"float",      1,0,'f'},
 			{"label",      1,0,'l'},
-			{"output",     1,0,'o'},
 
 			{"verbosity",  1,0,'v'},
 			{ NULL,        0,0, 0 }
@@ -232,10 +200,6 @@ int main( int argc, char *argv[] ) {
 		case 'f': opt_float_format = optarg;          break;
 		case 'l': opt_label_format = optarg;          break;
 
-		case 'o':
-			strcpy( opt_binary_file, optarg );
-			break;
-
 		case 'v':
 			opt_verbosity = atoi( optarg );
 			break;
@@ -254,54 +218,103 @@ int main( int argc, char *argv[] ) {
 
 	} while( true );
 
-	flags
-		= ( MTM_VERBOSITY_MASK & opt_verbosity)
-		| ( opt_expect_rownames ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
-		| ( opt_expect_header   ? MTM_MATRIX_HAS_HEADER    : 0 );
+	/**
+	  * Infer input/output from the first 0-2 positional arguments on the
+	  * assumption that
+	  * 1) if both are present they're ordered as <input> <output>
+	  * 2) <input> must exist (and be readable)
+	  * 3) <output> must not exist
+	  */
 
-	if( optind < argc ) {
-		FNAME = argv[optind++];
-		input = fopen( FNAME, "r" );
-		if( NULL == input ) {
-			err( -1, "loading %s", FNAME );
+	switch( argc - optind ) {
+	case 0: // input: stdin, output: stdout
+		break;
+	case 1: // i/o depends on whether argv[optind] names an existing file
+		if( access( argv[ optind ], F_OK ) == 0 ) {
+			fname_i = argv[optind++ ];
+			if( access( fname_i, R_OK ) )
+				errx( -1,
+					"assuming %s is input because it exists, but it is unreadable.",
+					fname_i );
+			else
+			if( opt_verbosity > 0 )
+				warnx( "using \"%s\" as input", fname_i );
+		} else { // file doesn't exist so assume it's an output filename
+			fname_o = argv[ optind++ ];
+			warnx( "using \"%s\" as output", fname_o );
 		}
+		break;
+
+	case 2:
+	default: // More than two args ignore all but next two.
+		assert( argc - optind >= 2 );
+		fname_i = argv[ optind++ ];
+		if( access( fname_i, F_OK ) == 0 ) {
+			if( access( fname_i, R_OK ) )
+				errx( -1,
+					"assuming %s is input because it exists, but it is unreadable.",
+					fname_i );
+		} else
+			errx( -1,
+				"command line position of \"%s\" implies it's your input, but it doesn't exist.",
+				fname_i );
+		fname_o = argv[ optind++ ];
+		if( access( fname_o, F_OK ) == 0 )
+			errx( -1,
+				"command line position of \"%s\" implies it's your output, but it exists.\nWon't overwrite.",
+				fname_i );
 	}
 
-	errnum = mtm_parse( input, 
-		flags, 
-		opt_missing_marker, 
-		opt_max_categories, 
-		opt_interpret_type, // may be NULL
-		&m );
-	fclose( input );
+	/**
+	  * Open any actual files inferred above.
+	  */
 
-#ifdef HAVE_BINARY_PERSISTENT_FORMAT
+	if( strcmp( fname_o, STDOUT ) ) {
+		fp_o = fopen( fname_o, "wb" );
+	} else
+	if( ! opt_echo )
+		errx( -1, "an output filename is not optional when preprocessing" );
 
-	// Save the binary first (before resolving the string offsets in the 
-	// row_map to string pointers).
-
-	if( strlen( opt_binary_file ) > 0 ) {
-		FILE *fp = fopen( opt_binary_file, "rb" );
-		if( fp ) {
-			if( _save( &m, fp ) )
-				errx( -1, "failed saving binary representation of %s", FNAME ? FNAME : "stdin" );
-			fclose( fp );
-		}
-	}
-#endif
-
-	// Echo the matrix as text
+	if( strcmp( fname_i, STDIN ) )
+		fp_i = fopen( fname_i, "r" );
+	else
+	if( opt_verbosity > 0 ) // ...so that naive user doesn't assume a hung program.
+		warnx( "expecting input on %s\n", STDIN );
 
 	if( opt_echo ) {
-		_dump( &m, opt_label_format, opt_float_format, stdout );
+
+		struct mtm_matrix mat;
+		struct mtm_matrix_header hdr;
+		memset( &mat, 0, sizeof(mat) );
+		memset( &hdr, 0, sizeof(hdr) );
+
+		if( MTM_OK == mtm_load_matrix( fp_i, &mat, &hdr ) ) {
+			_dump( &mat, opt_label_format, opt_float_format, fp_o );
 #ifdef HAVE_MD5
-		if( opt_include_md5 ) {
-			fprintf( stdout, "# MD5: %s\n", m.md5 );
-		}
+			if( opt_include_md5 ) {
+				fprintf( stdout, "# MD5: %s\n", m.md5 );
+			}
 #endif
+			mat.destroy( &mat );
+		}
+
+	} else {
+
+		const unsigned int FLAGS
+			= ( MTM_VERBOSITY_MASK & opt_verbosity)
+			| ( opt_expect_rownames ? MTM_MATRIX_HAS_ROW_NAMES : 0 )
+			| ( opt_expect_header   ? MTM_MATRIX_HAS_HEADER    : 0 );
+		errnum = mtm_parse( fp_i, 
+			FLAGS, 
+			opt_missing_marker, 
+			opt_max_categories, 
+			opt_interpret_type, // may be NULL
+			fp_o,
+			NULL );
 	}
 
-	m.destroy( &m );
+	if( fp_o ) fclose( fp_o );
+	if( fp_i ) fclose( fp_i );
 
 	return errnum ? -1 : 0;
 }

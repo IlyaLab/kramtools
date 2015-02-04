@@ -11,9 +11,7 @@ HAVE_MD5=
 
 ############################################################################
 
-BASENAME=libmtm
-LDFLAGS=-lm
-
+CFLAGS=-fPIC
 ifdef DEBUG
 CFLAGS+=-O0 -g -D_DEBUG -Wall
 INFIX=-dbg
@@ -23,8 +21,12 @@ LDFLAGS+=-Wl,-s
 INFIX=
 endif
 
-SHARED_LIB="$(BASENAME)$(INFIX).so"
-STATIC_LIB="$(BASENAME)$(INFIX).a"
+LDFLAGS=-lm
+
+BASENAME=mtm$(INFIX)
+SHARED_LIB=lib$(BASENAME).so
+STATIC_LIB=lib$(BASENAME).a
+EXECUTABLE=ppm
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
@@ -36,34 +38,40 @@ ifdef HAVE_MD5
 CFLAGS+=-DHAVE_MD5
 endif
 
-SOURCES=mtparser.c\
-	mtmatrix.c\
-	toktype.c\
-	syspage.c\
-	cardinality.c\
-	mtsclass.c\
-	$(SRCLIB)/strset.c\
-	$(CONTRIB)/fnv/hash_32.c
+OBJECTS=parser.o \
+	load.o \
+	matrix.o \
+	toktype.o \
+	syspage.o \
+	cardinality.o \
+	sclass.o \
+	$(SRCLIB)/strset.o \
+	$(CONTRIB)/fnv/hash_32.o
 
 ifdef HAVE_MD5
 SOURCES+=$(CONTRIB)/md5/md5.c 
 endif
 
-OBJECTS=$(addsuffix .o,$(basename $(SOURCES)))
 
-all : mtproc install
+all : $(EXECUTABLE) $(STATIC_LIB)
 
-%.o : %.c
-	$(CC) -c -o $@  -fPIC $(CFLAGS) $^
-
-$(SHARED_LIB) : $(OBJECTS)
-	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
+main.o    : mtmatrix.h mtheader.h syspage.h mterror.h
+load.o    : mtmatrix.h mtheader.h syspage.h mterror.h
+sclass.o  : mtsclass.h
+toktype.o : mtsclass.h toktype.h
+cardinality.o :
+parser    : mtmatrix.h mtheader.h syspage.h mterror.h mtsclass.h \
+	$(SRCLIB)/strset.h
+syspage.o : syspage.h 
 
 $(STATIC_LIB) : $(OBJECTS)
 	ar rcs $@ $^ 
 
-mtproc : main.c syspage.c $(CONTRIB)/md5/md5.c $(SHARED_LIB)
-	$(CC) -o $@ $(CFLAGS) $^ -L$(INSTALL_LIB) -lm -lmtm
+$(EXECUTABLE) : main.o $(STATIC_LIB)
+	$(CC) -o $@ $(CFLAGS) $< -lm -L. -l$(BASENAME)
+
+$(SHARED_LIB) : $(OBJECTS)
+	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
 
 ############################################################################
 # Unit tests
@@ -80,7 +88,7 @@ install : $(SHARED_LIB) $(STATIC_LIB)
 	install $^ $(INSTALL_LIB)
 
 clean :
-	rm -rf $(BASENAME)* mtproc ut-* $$(find . ../../lib -name "*.o")
+	rm -rf $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
 
 .PHONY : clean install
 
