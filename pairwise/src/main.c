@@ -509,7 +509,7 @@ static int /*ANCP*/ _analyze_cross_product(
 	  * pervasive assumption throughout this source that the input
 	  * is exactly one matrix needs to be revisited.
 	  */
-	fpair.l.name = "";
+	fpair.l.name = NULL;
 
 	if( fpair.l.data == NULL )
 		return -1;
