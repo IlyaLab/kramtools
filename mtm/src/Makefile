@@ -71,7 +71,10 @@ $(SHARED_LIB) : $(OBJECTS)
 	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
 
 $(EXECUTABLE) : main.o $(STATIC_LIB)
-	$(CC) -o $@ $(CFLAGS) $< -lm -L. -l$(BASENAME)
+	$(CC) -o $@ -static $(CFLAGS) $< -lm -L. -l$(BASENAME)
+
+i2n : nmap.o $(STATIC_LIB)
+	$(CC) -o $@ -static $(CFLAGS) $< -lm -L. -l$(BASENAME)
 
 ############################################################################
 # Unit tests
@@ -89,7 +92,7 @@ install : $(SHARED_LIB) $(STATIC_LIB)
 #	install $^ $(INSTALL_LIB)
 
 clean :
-	rm -rf lib$(BASENAME)* $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
+	rm -rf lib$(BASENAME)* i2n $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
 
 .PHONY : clean install
 

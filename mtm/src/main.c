@@ -126,9 +126,9 @@ static int opt_verbosity = 0;
 
 static const char *USAGE = 
 "%s [ options ] [ <input file> ] [ <output file> ]\n"
-"Options:\n"
+"Input options:\n"
 "   --nolabels | -r   do NOT expect input to have row names \n"
-"   --noheader | -h   do NOT expect input to havea header \n"
+"   --noheader | -h   do NOT expect input to have a header \n"
 "   --missing  | -m   set the \"missing data\" regex [ \"%s\" ]\n"
 "   --maxcats  | -k   set the maximum number of categories allowed \n"
 "                     categorical variables [%d]\n"
@@ -142,9 +142,9 @@ static const char *USAGE =
 #ifdef HAVE_MD5
 "  --checksum  | -c   include the (MD5) checksum of the input[%s]\n"
 #endif
-"Output options:\n"
-"  --echo      | -E   echo the parsed and validated matrix to stdout [%s]\n"
-"  --header    | -H   echo the parsed and validated matrix to stdout [%s]\n"
+"Testing options (for validating a preprocessed matrix):\n"
+"  --echo      | -E   \"echo\" a preprocessed matrix as text [%s]\n"
+"  --header    | -H   \"echo\" just the header of a preprocessed matrix [%s]\n"
 "  --float     | -F   a C printf format string for floating point\n"
 "                     display [\"%s\"]\n"
 "  --label     | -L   a C printf format string for display of the\n"
@@ -190,6 +190,11 @@ int main( int argc, char *argv[] ) {
 	FILE          *fp_o = stdout;
 
 	opt_missing_marker = mtm_default_NA_regex;
+
+	if( argc < 2 ) {
+		_print_usage( argv[0], stdout );
+		exit(0);
+	}
 
 	do {
 		static const char *CHAR_OPTIONS 

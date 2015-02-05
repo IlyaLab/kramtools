@@ -31,9 +31,12 @@ int mtm_load_header( FILE *fp, struct mtm_matrix_header *header ) {
 	if( header == NULL || fp == NULL )
 		return MTM_E_NULLPTR;
 
-	if( fread( header, sizeof(struct mtm_matrix_header), 1, fp ) != 1 ) {
+	if( fread( header, sizeof(struct mtm_matrix_header), 1, fp ) != 1 )
 		return MTM_E_IO;
-	}
+
+	if( strcmp( header->sig, MTM_SIGNATURE ) )
+		return MTM_E_BADSIG;
+
 	return MTM_OK;
 }
 

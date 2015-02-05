@@ -54,5 +54,7 @@
 
 #define MTM_E_NOMEM           (-11)
 
+#define MTM_E_BADSIG          (-12)
+
 #endif
 

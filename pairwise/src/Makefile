@@ -135,7 +135,7 @@ varfmt.o : stattest.h analysis.h varfmt.h featpair.h
 pairwise : $(VERSIONED_EXECUTABLE)
 
 $(VERSIONED_EXECUTABLE) : $(OBJECTS) $(LIBOBJECTS)
-	$(CC) -o $@ $(LINKTYPE) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -l$(MTM)
+	$(CC) -o $@ $(LINKTYPE) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -l$(MTM) -ldl
 
 # Following target will be eliminated away as soon as gratuitous C++ purged.
 
