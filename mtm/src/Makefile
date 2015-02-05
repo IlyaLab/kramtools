@@ -67,11 +67,11 @@ syspage.o : syspage.h
 $(STATIC_LIB) : $(OBJECTS)
 	ar rcs $@ $^ 
 
-$(EXECUTABLE) : main.o $(STATIC_LIB)
-	$(CC) -o $@ $(CFLAGS) $< -lm -L. -l$(BASENAME)
-
 $(SHARED_LIB) : $(OBJECTS)
 	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
+
+$(EXECUTABLE) : main.o $(STATIC_LIB)
+	$(CC) -o $@ $(CFLAGS) $< -lm -L. -l$(BASENAME)
 
 ############################################################################
 # Unit tests
@@ -85,10 +85,11 @@ ut-cardinality : cardinality.c
 
 install : $(SHARED_LIB) $(STATIC_LIB)
 	install $^ $(INSTALL_LIB)
-	install $^ $(INSTALL_LIB)
+
+#	install $^ $(INSTALL_LIB)
 
 clean :
-	rm -rf $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
+	rm -rf lib$(BASENAME)* $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
 
 .PHONY : clean install
 

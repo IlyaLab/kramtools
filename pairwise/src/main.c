@@ -37,17 +37,10 @@
   *   6) Casts, ALL casts!
   */
 
-#ifdef _BUILD_PYTHON_BINDING
-#include <Python.h>
-#ifdef HAVE_LUA
-#error Python and Lua dependencies are mutually exclusive
-#endif
-#else
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
-#endif
 #include <time.h>
 #include <math.h>
 #include <signal.h>
@@ -65,21 +58,21 @@
 #include <gsl/gsl_errno.h>
 
 #include "mtmatrix.h"
+#include "mtheader.h"
 #include "mtsclass.h"
+#include "mterror.h"
 #include "featpair.h"
 #include "stattest.h"
 #include "analysis.h"
 #include "varfmt.h"
 #include "fixfmt.h"
 #include "limits.h"
+#include "version.h"
 
 #ifdef HAVE_LUA
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
-#ifdef _BUILD_PYTHON_BINDING
-#error Python and Lua dependencies are mutually exclusive
-#endif
 #endif
 
 /***************************************************************************
@@ -87,8 +80,6 @@
  */
 
 extern int mtm_sclass_by_prefix( const char *token );
-
-#ifndef _BUILD_PYTHON_BINDING
 
 extern int get_base10_ints( FILE *fp, int *index, int n );
 
@@ -128,6 +119,7 @@ static const char *opt_script          = NULL;
 static bool        opt_header          = true;
 static bool        opt_row_labels      = true;
 static const char *opt_type_parser     = NULL;
+static const char *opt_preproc_matrix  = NULL; // ...or optarg
 static       char *opt_single_pair     = NULL; // non-const because it's split
 
 static const char *opt_pairlist_source = NULL;
@@ -158,8 +150,6 @@ static bool     opt_warnings_are_fatal = false;
 #define V_INFO      (3)
 
 static int opt_verbosity = V_ESSENTIAL;
-
-#endif // not _BUILD_PYTHON_BINDING
 
 #ifdef _DEBUG
 static bool  dbg_silent               = false;
@@ -324,8 +314,6 @@ static void _error_handler(const char * reason,
 }
 
 
-#ifndef _BUILD_PYTHON_BINDING
-
 static FILE *_fdr_cache_fp = NULL;
 
 /***************************************************************************
@@ -418,7 +406,7 @@ static void _fdr_cache( ANALYSIS_FN_SIG ) {
   *
   * [...And i is 1-based in this notation!]
   */
-static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
+static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output, bool minimal_output ) {
 
 	const unsigned CACHED_COUNT
 		= ftell( cache ) / sizeof(struct FDRCacheRecord);
@@ -443,33 +431,43 @@ static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 	// pass the now-established p-value threshold.
 
 	prec = sortbuf;
-	while( prec->p <= (i+1)*RATIO && i < CACHED_COUNT) {
-	
-		struct feature_pair fpair;
-		struct CovariateAnalysis covan;
-		memset( &covan, 0, sizeof(covan) );
+	if( minimal_output ) {
 
-		fpair.l.offset = prec->a;
-		fpair.r.offset = prec->b;
-		fetch_by_offset( &_matrix, &fpair );
+		while( prec->p <= (i+1)*RATIO && i < CACHED_COUNT) 
+			fprintf( final_output, "%d\t%d\t%.3e\n", prec->a, prec->b, prec->p );
 
-		covan_exec( &fpair, &covan );
+	} else {
 
-		// At this point emission is unconditional; FDR control has
-		// already filtered all that will be filtered...
+		while( prec->p <= (i+1)*RATIO && i < CACHED_COUNT) {
+		
+			struct feature_pair fpair;
+			struct CovariateAnalysis covan;
+			memset( &covan, 0, sizeof(covan) );
 
-		_emit( &fpair, &covan, final_output );
+			fpair.l.offset = prec->a;
+			fpair.r.offset = prec->b;
+			fetch_by_offset( &_matrix, &fpair );
 
-		if( _sigint_received ) {
-			time_t now = time(NULL);
-			fprintf( stderr, "# FDR postprocess interrupted @ %s", ctime(&now) );
-			break;
+			covan_exec( &fpair, &covan );
+
+			// At this point emission is unconditional; FDR control has
+			// already filtered all that will be filtered...
+
+			_emit( &fpair, &covan, final_output );
+
+			if( _sigint_received ) {
+				time_t now = time(NULL);
+				fprintf( stderr, "# FDR postprocess interrupted @ %s", ctime(&now) );
+				break;
+			}
+
+			prec += 1;
+			i    += 1;
 		}
-
-		prec += 1;
-		i    += 1;
 	}
+
 	// However, the preceding loop exited
+
 	if( opt_verbosity >= V_WARNINGS ) {
 		if( i > 0 )
 			fprintf( final_output, "# max p-value %.3f\n", sortbuf[i-1].p );
@@ -491,10 +489,93 @@ static void _fdr_postprocess( FILE *cache, double Q, FILE *final_output ) {
 
 // BEGIN:RSI
 
+static int /*ANCP*/ _analyze_cross_product(
+		const struct mtm_matrix_header *hdr, FILE *fp[] ) {
+
+	bool completed = true;
+	struct feature_pair fpair;
+	struct mtm_row_id *rrid;
+
+	/**
+	  * Location of left data won't change: same buffer, same offset for
+	  * duration of iteration.
+	  */
+	fpair.l.data
+		= calloc( _matrix.columns, sizeof(mtm_int_t) );
+
+	/**
+	  * TODO: I actually could enumerate the disk-resident matrix'
+	  * row names just as I do the descriptors. In general, the
+	  * pervasive assumption throughout this source that the input
+	  * is exactly one matrix needs to be revisited.
+	  */
+	fpair.l.name = "";
+
+	if( fpair.l.data == NULL )
+		return -1;
+
+	assert( ! _matrix.lexigraphic_order /* should be row order */ );
+
+	for(fpair.l.offset = 0;
+		fpair.l.offset < hdr->rows;
+		fpair.l.offset++ ) {
+
+		/**
+		  * Read the "left" feature's data and descriptor
+		  */
+
+		if( fread( (void*)fpair.l.data, sizeof(mtm_int_t), hdr->columns,  fp[0] ) != hdr->columns )
+			break;
+		if( fread( &fpair.l.prop, sizeof(struct mtm_descriptor), 1, fp[1] ) != 1 )
+			break;
+
+		/**
+		  * RAM-resident matrix is *fully* reset for each row of disk-
+		  * resident matrix...
+		  */
+
+		fpair.r.data = _matrix.data;
+		rrid         = _matrix.row_map; // may be NULL
+
+		for(fpair.r.offset = 0;
+			fpair.r.offset < _matrix.rows;
+			fpair.r.offset++ ) {
+
+			fpair.r.name = rrid ? rrid->string : "";
+			fpair.r.prop = _matrix.prop[ fpair.r.offset ];
+
+			_analyze( &fpair );
+
+			if( _sigint_received ) {
+				time_t now = time(NULL);
+				fprintf( stderr, "# main analysis loop interrupted @ %s", ctime(&now) );
+				completed = false;
+				break;
+			}
+
+			fpair.r.data += _matrix.columns;
+			if( rrid ) rrid += 1;
+
+		} // inner for
+	}
+
+	if( ferror( fp[0] ) || ferror( fp[1] ) ) {
+		warn( "reading row %d of preprocessed matrix", fpair.l.offset );
+		completed = false;
+	}
+
+	if( fpair.l.data )
+		free( (void*)fpair.l.data );
+
+	return completed ? 0 : -1;
+}
+
+
 static bool _is_integer( const char *pc ) {
 	while( *pc ) if( ! isdigit(*pc++) ) return false;
 	return true;
 }
+
 
 static int _analyze_single_pair( const char *csv, const bool HAVE_ROW_LABELS ) {
 
@@ -690,7 +771,6 @@ static int /*ALUA*/ _analyze_generated_pair_list( lua_State *state ) {
 	return 0;
 }
 #endif
-#endif // not _BUILD_PYTHON_BINDING
 
 /**
   * This clause serves the primary use case motivating this
@@ -738,10 +818,8 @@ static int /*AALL*/ _analyze_all_pairs( void ) {
 			_analyze( &fpair );
 
 			if( _sigint_received ) {
-#ifndef _BUILD_PYTHON_BINDING
 				time_t now = time(NULL);
 				fprintf( stderr, "# main analysis loop interrupted @ %s", ctime(&now) );
-#endif
 				completed = false;
 				break;
 			}
@@ -769,7 +847,6 @@ static void _jit_initialization( void ) {
 	gsl_set_error_handler( _error_handler );
 }
 
-#ifndef _BUILD_PYTHON_BINDING
 
 /***************************************************************************
   * Online help
@@ -795,7 +872,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 
 	if( exhaustive )
 		fprintf( fp, USAGE_UNABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX, _VER_TAG, debug_state,
+			exename, VER_MAJOR, VER_MINOR, VER_PATCH, VER_TAG, debug_state,
 			exename,
 			exename,
 			TYPE_PARSER_INFER,
@@ -819,7 +896,7 @@ static void _print_usage( const char *exename, FILE *fp, bool exhaustive ) {
 			AUTHOR_EMAIL );
 	else
 		fprintf( fp, USAGE_ABRIDGED,
-			exename, _VER_MAJ, _VER_MIN, _VER_FIX, _VER_TAG, debug_state,
+			exename, VER_MAJOR, VER_MINOR, VER_PATCH, VER_TAG, debug_state,
 			exename,
 			opt_p_value,
 		  	AUTHOR_EMAIL );
@@ -845,9 +922,9 @@ int main( int argc, char *argv[] ) {
 
 		static const char *CHAR_OPTIONS
 #ifdef HAVE_LUA
-			= "s:hrt:N:P:n:x:c:DM:p:f:q:v:?X";
+			= "s:hrt:N:C:P:n:x:c:DM:p:f:q:v:?X";
 #else
-			= "hrt:N:P:n:x:DM:p:f:q:v:?X";
+			= "hrt:N:C:P:n:x:DM:p:f:q:v:?X";
 #endif
 
 		static struct option LONG_OPTIONS[] = {
@@ -858,8 +935,9 @@ int main( int argc, char *argv[] ) {
 			{"no-row-labels", no_argument,        0,'r'},
 			{"type-parser",   required_argument,  0,'t'},
 			{"na-regex",      required_argument,  0,'N'},
-			{"pair",          required_argument,  0,'P'},
 
+			{"crossprod",     required_argument,  0,'C'},
+			{"pair",          required_argument,  0,'P'},
 			{"by-name",       required_argument,  0,'n'},
 			{"by-index",      required_argument,  0,'x'},
 #ifdef HAVE_LUA
@@ -902,6 +980,9 @@ int main( int argc, char *argv[] ) {
 			break;
 		case 'N': // na-regex
 			opt_na_regex    = optarg;
+			break;
+		case 'C': // cross-product of matrices
+			opt_preproc_matrix = optarg;
 			break;
 		case 'P': // pair
 			opt_single_pair = optarg;
@@ -1161,7 +1242,7 @@ int main( int argc, char *argv[] ) {
 		i_file = argv[ optind++ ];
 		o_file = argv[ optind++ ];
 		if( (argc-optind) > 0 && opt_verbosity >= V_ESSENTIAL ) {
-			// This behavior or ignoring "extra" arguments is implemented
+			// This behavior of ignoring "extra" arguments is implemented
 			// ONLY so that this executable plays nicely with a job control
 			// system which uses extra command line args NOT intended for
 			// the executable. TODO: Revisit this!
@@ -1250,6 +1331,7 @@ int main( int argc, char *argv[] ) {
 				opt_na_regex,
 				MAX_CATEGORY_COUNT,
 				opt_row_labels ? _interpret_row_label : NULL,
+				NULL, // ...since no persistent binary matrix is needed.
 				&_matrix );
 		fclose( fp );
 
@@ -1297,14 +1379,65 @@ int main( int argc, char *argv[] ) {
 	}
 
 	/**
-	  * Here the main decision is made regrding feature selection.
+	  * Here the main decision is made regarding feature selection.
 	  * In order of precedence:
+	  * 0. cross-product of matrices
 	  * 1. single pair
 	  * 2. explicit pairs (by name or by offset)
 	  * 3. Lua-generated offsets
 	  * 4. all-pairs
 	  */
 
+	if( opt_preproc_matrix ) {
+		FILE *ppm[2];
+		ppm[0] = fopen( opt_preproc_matrix, "r" );
+		if( ppm[0] ) {
+
+			struct mtm_matrix_header hdr;
+
+			/**
+			  * Open a second stream on the file to access the
+			  * descriptor table.
+			  */
+			ppm[1] = fopen( opt_preproc_matrix, "r" );
+			
+			/**
+			  * Read the header and verify compatibility
+			  */
+
+			if( mtm_load_header( ppm[0], &hdr ) != MTM_OK )
+				err( -1, "failed reading preprocessed matrix' (%s) header",
+					opt_preproc_matrix );
+
+			// Verify file is the preprocessed matrix the user thinks it is.
+
+			if( strcmp( hdr.sig, MTM_SIGNATURE ) )
+				errx( -1, "%s has wrong signature."
+					"Are you sure this is a preprocessed matrix",
+					opt_preproc_matrix );
+
+			// Verify equality of columns
+
+			if( _matrix.columns != hdr.columns )
+				errx( -1, "processed matrix has %d columns; other has %d",
+					hdr.columns, _matrix.columns );
+
+			// Skip past the header to the row data.
+
+			if( fseek( ppm[0], hdr.section[ S_MATRIX ].offset, SEEK_SET ) )
+				err( -1, "failed seeking to start of data" );
+
+			// Skip to the descriptor table in the 2nd stream.
+
+			if( fseek( ppm[1], hdr.section[ S_DESCRIPTOR ].offset, SEEK_SET ) )
+				err( -1, "failed seeking to start of data" );
+
+			_analyze_cross_product( &hdr, ppm );
+
+			fclose( ppm[1] );
+			fclose( ppm[0] );
+		}
+	} else
 	if( opt_single_pair ) {
 
 		_analyze_single_pair( opt_single_pair, opt_row_labels );
@@ -1349,7 +1482,7 @@ int main( int argc, char *argv[] ) {
 	// analysis FOR A SUBSET of the original input.)
 
 	if( USE_FDR_CONTROL && (! _sigint_received) ) {
-		_fdr_postprocess( _fdr_cache_fp, arg_q_value, _fp_output );
+		_fdr_postprocess( _fdr_cache_fp, arg_q_value, _fp_output, opt_preproc_matrix != NULL );
 	} else
 	if( opt_verbosity >= V_ESSENTIAL ) {
 		fprintf( _fp_output, 
@@ -1368,113 +1501,4 @@ int main( int argc, char *argv[] ) {
 
 	return exit_status;
 }
-
-#else // _BUILD_PYTHON_BINDING
-
-/**
-  * All the following is for a very specific ISB-only use case related to a
-  * web app developed by Dick Kreisberg et al.
-  * ../test/testpyext.py exercises this, but that's your only guide.
-  * There is no further documentation and none planned for this.
-  */
-
-static PyObject * _run( PyObject *self, PyObject *args ) {
-
-	PyObject * ret = Py_None;
-	FILE *fp_input = NULL;
-	PyObject *fobj[2];
-
-	if( ! PyArg_ParseTuple( args, "OO", fobj+0, fobj+1 ) ) {
-		// PyArg_ParseTuple has already raised appropriate exception.
-		return NULL;
-	}
-	if( ! PyFile_Check( fobj[0] ) ) {
-		PyErr_SetString( PyExc_TypeError, "1st argument is not a File object" );
-		return NULL;
-	}
-
-	if( ! PyFile_Check( fobj[1] ) ) {
-		PyErr_SetString( PyExc_TypeError, "2nd argument is not a File object" );
-		return NULL;
-	}
-
-	 fp_input  = PyFile_AsFile( fobj[0] );
-	_fp_output = PyFile_AsFile( fobj[1] );
-
-	if( fp_input != NULL && _fp_output != NULL ) {
-	
-		int err = 0;
-
-		PyFile_IncUseCount((PyFileObject*)fobj[0]);
-		PyFile_IncUseCount((PyFileObject*)fobj[1]);
-		Py_BEGIN_ALLOW_THREADS
-
-		/**
-		  * Load the input matrix.
-		  */
-
-		err	= mtm_parse( fp_input,
-				MTM_MATRIX_HAS_ROW_NAMES | MTM_MATRIX_HAS_HEADER,
-				mtm_default_NA_regex,
-				MAX_CATEGORY_COUNT,
-				mtm_sclass_by_prefix,
-				&_matrix );
-
-		Py_END_ALLOW_THREADS
-		PyFile_DecUseCount((PyFileObject*)fobj[1]);
-		PyFile_DecUseCount((PyFileObject*)fobj[0]);
-
-		// Python interpreter is locked (out) for remainder of 
-		// pairwise execution...
-
-		if( err == 0 ) {
-
-			if( covan_init( _matrix.columns ) == 0 ) {
-
-				if( _analyze_all_pairs() ) {
-					PyErr_SetString( PyExc_KeyboardInterrupt, "interruption" );
-					// ...only way _analyze_all_pairs returns non-zero.
-					ret = NULL;
-				}
-
-				covan_fini();
-
-			} else {
-				PyErr_SetString( PyExc_MemoryError,
-						"pre-allocating analysis buffers" );
-				ret = NULL;
-			}
-
-			_matrix.destroy( &_matrix );
-
-		} else {
-
-			static char buf[ 40 ];
-			// TODO: Improve error reporting in following.
-			sprintf( buf, "failed loading matrix (libmtm error %d)", err );
-			PyErr_SetString( PyExc_RuntimeError, buf );
-			ret = NULL;
-		}
-
-	} else {
-
-		PyErr_SetString( PyExc_RuntimeError, "PyFile_AsFile returned NULL" );
-		ret = NULL;
-	}
-
-	return ret;
-}
-
-static PyMethodDef methods[] = {
-	{"run",_run,METH_VARARGS},
-	{NULL,NULL},
-};
-
-PyMODINIT_FUNC initpairwise(void) {
-	PyObject *m
-		= Py_InitModule( "pairwise", methods );
-	_jit_initialization();
-}
-
-#endif
 

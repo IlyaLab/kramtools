@@ -49,6 +49,12 @@ options, --pair overrides --by-{name|index}.
 --by-{name|index} overrides --coroutine. (See the advanced help.)
 #endif
 
+  --crossprod | -C <preprocessed matrix filename>
+
+	Analyze all pairs of features from two different matrices.
+	The matrix specified with this flag must have been preprocessed.
+	(See advanced help for more information).
+
   --pair | -P      <row1>,<row2>
 
     Analyze the single comma-separated pair of features.

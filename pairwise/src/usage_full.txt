@@ -107,6 +107,17 @@ options, --pair overrides --by-{name|index}.
 --by-{name|index} overrides --coroutine.
 #endif
 
+  --crossprod | -C <preprocessed matrix filename>
+
+	Analyze all pairs of features from two different matrices.
+	The matrix specified with this flag must have been preprocessed.
+	One of the purposes of this mode is accomodation of matrices that are
+	too large to load entirely into RAM. The preprocessed matrix is read
+	one row at a time, and that row is crossed with all rows of the other
+	(RAM-resident) matrix. This option overrides all others. No prefiltering
+	is available--that is, all rows of the preprocessed matrix are crossed
+	with all rows of the loaded matrix.
+
   --pair | -P      <row1>,<row2>
 
     Analyze the single comma-separated pair of features.

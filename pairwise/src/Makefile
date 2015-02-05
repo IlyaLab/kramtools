@@ -3,10 +3,13 @@
 # Product file names
 ############################################################################
 
+# This is the sole place version is defined.
+# The version.h header is then generated from these definitions.
+
 EXECUTABLE_BASENAME=pairwise
 VER_MAJ=2
-VER_MIN=0
-VER_FIX=1
+VER_MIN=1
+VER_FIX=0
 
 ifdef RELCAN
 RC=1
@@ -19,10 +22,10 @@ else
 VER_TAG=
 endif
 
-VERSION=-D_VER_MAJ=$(VER_MAJ)\
-	   	-D_VER_MIN=$(VER_MIN)\
-	   	-D_VER_FIX=$(VER_FIX)\
-		-D_VER_TAG=\"$(VER_TAG)\"
+#VERSION=-D_VER_MAJ=$(VER_MAJ)\
+#	   	-D_VER_MIN=$(VER_MIN)\
+#	   	-D_VER_FIX=$(VER_FIX)\
+#		-D_VER_TAG=\"$(VER_TAG)\"
 
 VERSIONED_EXECUTABLE=$(EXECUTABLE_BASENAME)-$(VER_MAJ).$(VER_MIN).$(VER_FIX)$(VER_TAG)
 
@@ -39,31 +42,25 @@ LIBDIR=$(HOME)/lib
 # Sources
 ############################################################################
 
-SOURCES=main.c \
-	fp.c \
-	featpair.c\
-	fixfmt.c \
-	varfmt.c
+OBJECTS=main.o \
+	fp.o \
+	featpair.o \
+	fixfmt.o \
+	varfmt.o \
+	analysis.c \
+	cat.c \
+	mix.c \
+	num.c \
+	usage_full.c \
+	usage_short.c
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
 MD5DIR=$(CONTRIB)/md5
 
-LIBSOURCES=dsp.c \
-	rank.c \
-	fisher.c \
-	min2.c
-
-SOURCES+=$(addprefix $(SRCLIB)/,$(LIBSOURCES))
-
-$(warning $(SOURCES) )
+LIBOBJECTS=$(addprefix $(SRCLIB)/, dsp.o rank.o fisher.o min2.o)
 
 EXECUTABLES=$(VERSIONED_EXECUTABLE)
-
-UNITTESTS=ut_mix \
-	ut_cat \
-	ut_num \
-	ut_bvr
 
 ############################################################################
 # Compilation options
@@ -100,9 +97,16 @@ endif
 ############################################################################
 # Primary
 
-all : $(EXECUTABLES) $(UNITTESTS)
+all : $(EXECUTABLES)
 
-pairwise : $(VERSIONED_EXECUTABLE)
+version.h : Makefile
+	echo "#ifndef _version_h_"               > $@
+	echo "#define _version_h_"              >> $@
+	echo "#define VER_MAJOR ($(VER_MAJ))"   >> $@
+	echo "#define VER_MINOR ($(VER_MIN))"   >> $@
+	echo "#define VER_PATCH ($(VER_FIX))"   >> $@
+	echo "#define VER_TAG (\"$(VER_TAG)\")" >> $@
+	echo "#endif"                           >> $@
 
 usage_full.c : usage_full.txt
 	sed -f usage.sed $< > $@
@@ -110,15 +114,37 @@ usage_full.c : usage_full.txt
 usage_short.c : usage_short.txt
 	sed -f usage.sed $< > $@
 
-$(VERSIONED_EXECUTABLE) : $(SOURCES) analysis.c cat.c mix.c num.c usage_full.c usage_short.c
-	$(CC) -o $@ $(LINKTYPE) $(VERSION) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -l$(MTM)
+$(SRCLIB)/dsp.o :
+$(SRCLIB)/rank.o : $(SRCLIB)/rank.h
+$(SRCLIB)/fisher.o : $(SRCLIB)/fisher.h
+$(SRCLIB)/min2.o : $(SRCLIB)/min2.h
+
+analysis.o : stattest.h featpair.h analysis.h cat.h mix.h num.h args.h limits.h
+bvr.o : bvr.h
+cat.o : limits.h stattest.h cat.h fisher.h min2.h bvr.h
+featpair.o : featpair.h
+fixfmt.o : featpair.h stattest.h analysis.h fixfmt.h varfmt.h
+fp.o : fp.h
+main.o : featpair.h stattest.h analysis.h varfmt.h fixfmt.h limits.h version.h
+mix.o : stattest.h mix.h bvr.h limits.h
+num.o : rank.h stattest.h num.h
+usage_full.o :
+usage_short.o :
+varfmt.o : stattest.h analysis.h varfmt.h featpair.h
+
+pairwise : $(VERSIONED_EXECUTABLE)
+
+$(VERSIONED_EXECUTABLE) : $(OBJECTS) $(LIBOBJECTS)
+	$(CC) -o $@ $(LINKTYPE) $(CFLAGS) $^ $(LDFLAGS) -lgslcblas -lgsl -lm -l$(MTM)
 
 # Following target will be eliminated away as soon as gratuitous C++ purged.
 
-unittests : $(UNITTESTS)
-
 ############################################################################
 # Unit tests
+
+UNITTESTS=ut_mix ut_cat ut_num ut_bvr
+
+unittests : $(UNITTESTS)
 
 ut_bvr : bvr.c
 	$(CC) -o $@ -g -O0 -D_DEBUG -Wall $(CFLAGS) -D_UNITTEST_BVR_ $^
@@ -145,7 +171,7 @@ archive : clean
 	rm -rf "./$(ARCHIVE_NAME)"
 
 clean :
-	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_*.c *.o $$(find . ../../lib -name "*.o")
+	rm -rf $(EXECUTABLES) ut_* $(ARCHIVE_NAME).tar.gz usage_*.c *.o $$(find . ../../lib -name "*.o") version.h
 
 .PHONY : clean archive
 
