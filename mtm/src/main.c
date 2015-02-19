@@ -116,7 +116,7 @@ static int (*opt_interpret_type)( const char *token ) = mtm_sclass_by_prefix;
 #ifdef HAVE_MD5
 static bool opt_include_md5     = false;
 #endif
-static bool opt_echo            = false;
+static bool opt_echo_matrix     = false;
 static bool opt_echo_header     = false;
 // This is the minimum precision that random.rb generates which
 // is the MOST we can assume is available...
@@ -170,7 +170,7 @@ static void _print_usage( const char *exename, FILE *fp ) {
 #ifdef HAVE_MD5
 		opt_include_md5 ? _T : _F,
 #endif
-		opt_echo ? _T : _F,
+		opt_echo_matrix ? _T : _F,
 		opt_echo_header ? _T : _F,
 		opt_float_format,
 		opt_label_format,
@@ -234,8 +234,8 @@ int main( int argc, char *argv[] ) {
 #ifdef HAVE_MD5
 		case 'c': opt_include_md5     = true;         break;
 #endif
-		case 'E': opt_echo            = true;         break;
-		case 'H': opt_echo = opt_echo_header = true;  break;
+		case 'E': opt_echo_matrix     = true;         break;
+		case 'H': opt_echo_header     = true;         break;
 		case 'F': opt_float_format = optarg;          break;
 		case 'L': opt_label_format = optarg;          break;
 
@@ -311,7 +311,7 @@ int main( int argc, char *argv[] ) {
 	if( strcmp( fname_o, STDOUT ) ) {
 		fp_o = fopen( fname_o, "wb" );
 	} else
-	if( ! opt_echo )
+	if( ! ( opt_echo_matrix || opt_echo_header ) )
 		errx( -1, "an output filename is not optional when preprocessing" );
 
 	if( strcmp( fname_i, STDIN ) )
@@ -320,7 +320,21 @@ int main( int argc, char *argv[] ) {
 	if( opt_verbosity > 0 ) // ...so that naive user doesn't assume a hung program.
 		warnx( "expecting input on %s\n", STDIN );
 
-	if( opt_echo ) {
+	/**
+	  * Head must be handled as special case because matrix may be
+	  * too large to be loadable in general.
+	  */
+	if( opt_echo_header ) {
+		struct mtm_matrix_header hdr;
+		memset( &hdr, 0, sizeof(hdr) );
+		if( fread( &hdr, sizeof(struct mtm_matrix_header), 1, fp_i ) == 1 ) {
+			_echo_header( &hdr, fp_o );
+		} else
+			warnx( "failed loading header" );
+		rewind( fp_i );
+	}
+
+	if( opt_echo_matrix ) {
 
 		struct mtm_matrix mat;
 		struct mtm_matrix_header hdr;
@@ -329,10 +343,7 @@ int main( int argc, char *argv[] ) {
 
 		if( MTM_OK == mtm_load_matrix( fp_i, &mat, &hdr ) ) {
 
-			if( opt_echo_header )
-				_echo_header( &hdr, fp_o );
-			else
-				_echo_matrix( &mat, opt_label_format, opt_float_format, fp_o );
+			_echo_matrix( &mat, opt_label_format, opt_float_format, fp_o );
 #ifdef HAVE_MD5
 			if( opt_include_md5 ) {
 				fprintf( stdout, "# MD5: %s\n", m.md5 );
