@@ -76,6 +76,9 @@ $(EXECUTABLE) : main.o $(STATIC_LIB)
 i2n : nmap.o $(STATIC_LIB)
 	$(CC) -o $@ -static $(CFLAGS) $< -lm -L. -l$(BASENAME)
 
+rmred : cull.o $(CONTRIB)/md5/md5.o $(STATIC_LIB)
+	$(CC) -o $@ -static $(CFLAGS) cull.o $(CONTRIB)/md5/md5.o -lm -L. -l$(BASENAME) 
+
 ############################################################################
 # Unit tests
 ############################################################################
