@@ -797,6 +797,10 @@ int mtm_parse( FILE *input,
 
 	if( m ) {
 
+		const off_t SECTION_OFFSET[ S_COUNT ] = {
+			SIZEOF_HEADER_SECTION,
+			0,0,0
+		};
 		size_t    sizeof_part[4];
 		size_t pa_sizeof_part[4];
 		char *blob = NULL;
@@ -806,13 +810,14 @@ int mtm_parse( FILE *input,
 		memset( pa_sizeof_part, 0, sizeof(pa_sizeof_part) );
 		memset(              m, 0, sizeof(struct mtm_matrix) );
 
+		assert( s.cache[ S_MATRIX ] == NULL );
 		s.cache[ S_MATRIX ] = final_fp; // ...simplifies the next few lines.
 
 		// Determine the file sizes of each cache and total size
 
 		for(int i = 0; i < S_COUNT; i++ ) {
 			if( s.cache[i] ) {
-				sizeof_part[i]    = ftell( s.cache[i] );
+				sizeof_part[i]    = ftell( s.cache[i] ) - SECTION_OFFSET[i];
 				pa_sizeof_part[i] = page_aligned_ceiling( sizeof_part[i] );
 				blobsize         += pa_sizeof_part[i];
 #ifdef _DEBUG
@@ -841,7 +846,7 @@ int mtm_parse( FILE *input,
 					// Load the cache back into RAM...
 
 					if( fflush( s.cache[i] ) ||
-						fseek( s.cache[i], 0, SEEK_SET ) ||
+						fseek( s.cache[i], SECTION_OFFSET[i], SEEK_SET ) ||
 						fread( ptr, sizeof_part[i], 1, s.cache[i] ) != 1 ) {
 						warnx( "%s: failed reading cache %d", __FILE__, i );
 						break;
