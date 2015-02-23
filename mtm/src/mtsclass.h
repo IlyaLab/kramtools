@@ -3,16 +3,22 @@
 #define _mtsclass_h_
 
 /**
-  * I'm using bitfields below to accomodate the lack of mutual exclusion.
-  * e.g. Categorical data may be boolean and/or ordered.
+  * Statistical classes are mutually exclusive.
+  * The statistical class of a feature guides both the parsing of its
+  * data as well as the choice of statistical tests involving it.
   */
-#define MTM_STATCLASS_UNKNOWN      (0)
-#define MTM_STATCLASS_BOOLEAN      (1)
-#define MTM_STATCLASS_CATEGORICAL  (2)
-#define MTM_STATCLASS_ORDINAL      (4)
-#define MTM_STATCLASS_CONTINUOUS   (8)
+enum StatisticalClass {
+	MTM_STATCLASS_UNKNOWN = 0,
+	MTM_STATCLASS_BOOLEAN,     // Ordered IFF input data is integral.
+	MTM_STATCLASS_CATEGORICAL, // ALWAYS UNORDERED.
+	MTM_STATCLASS_ORDINAL,
+	MTM_STATCLASS_CONTINUOUS,
+	MTM_STATCLASS_COUNT
+};
 
-const char *stat_class_name( unsigned bitfield );
+/**
+  * Statistical class constrains the interpretation of textual data.
+  */
 unsigned field_type_from_stat_class( unsigned bitfield );
 
 /**

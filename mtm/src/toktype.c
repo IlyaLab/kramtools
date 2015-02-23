@@ -119,11 +119,14 @@ bool toktype_is_na_marker( const char *sz ) {
 
 /**
   * This function must not fail. Specifically, it must return EXACTLY ONE
-  * of the non-zero field_type_x constants.
-  * Essentially anything that CAN NOT be interpreted as a numeric type is 
-  * a string (...by definition, really).
+  * of the non-zero MTM_FIELD_TYPE_x constants.
+  * "Narrowness" refers to interpretation. Specifically, everything that
+  * is interpretable as an integer is interpretable as floating-point (even
+  * though there are large integers that cannot be represented as floats!).
+  * Obviously, everything is interpretable as a string, so that's the catch-
+  * all case.
   */
-int toktype_infer( const char *sz, unsigned int *base ) {
+int toktype_infer_narrowest_type( const char *sz, unsigned int *base ) {
 
 	// This function should not be called on missing data markers. 
 	// Such markers are, by design, common for all rows of a matrix; 

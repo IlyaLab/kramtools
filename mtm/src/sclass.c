@@ -3,23 +3,17 @@
 #include <assert.h>
 #include "mtsclass.h"
 
-static const char *STAT_CLASSES[ 9 /* STAT_CLASS_ bitfield value */ ] = {
-	"unk",
-	"bin",
-	"cat",
-	"cat|bin",
-	"ord",
-	"ord|bin",
-	"ord|cat",
-	"ord|cat|bin",
-	"con"
+static const char *STAT_CLASSES[ MTM_STATCLASS_COUNT ] = {
+	"unknown",
+	"boolean",
+	"categorical",
+	"ordinal",
+	"continuous"
 };
 
 
-const char *stat_class_name( unsigned bitfield ) {
-	return bitfield > 8
-		? "invalid"
-		: STAT_CLASSES[ bitfield ];
+const char *mtm_sclass_name( unsigned int id ) {
+	return id >= MTM_STATCLASS_COUNT ? "invalid" : STAT_CLASSES[ id ];
 }
 
 /**
@@ -29,24 +23,29 @@ const char *stat_class_name( unsigned bitfield ) {
   * This mapping embodies a set of conventions that are somewhat arbitrary,
   * but must be reflected in the implementation of _parseLine, particularly
   * the implementation of inference revision.
+  *
+  * Note that boolean and ordinal data both *could* be represented as
+  * floating-point (e.g. 0.0/1.0), but these cases are unsupported now.
+  * Keep it simple, stupid...
+  *
+  * We have encounted a real use-case in which boolean data was encoded
+  * as {0,1} and the order mattered!
   */
-static unsigned field_types[ 9 /* STAT_CLASS_ bitfield value */ ] = {
-	MTM_FIELD_TYPE_UNK,                                // unknown
-	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // boolean
-	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // categorical
-	MTM_FIELD_TYPE_STR,// | MTM_FIELD_TYPE_INT,           // boolean OR categorical
-	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal
-	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR boolean
-	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR categorical
-	MTM_FIELD_TYPE_INT, // implies floats are an error    ordinal OR boolean OR categorical
-	MTM_FIELD_TYPE_FLT
+static unsigned field_types[ MTM_STATCLASS_COUNT ] = {
+	/* unknown     */ MTM_FIELD_TYPE_UNK,
+	/* boolean     */ MTM_FIELD_TYPE_STR | MTM_FIELD_TYPE_INT,
+	/* categorical */ MTM_FIELD_TYPE_STR,
+	/* ordinal     */ MTM_FIELD_TYPE_INT,
+	/* continuous  */ MTM_FIELD_TYPE_FLT
 };
 
+/**
+  * Note that at runtime boolean, categorical and ordinal are encoded as
+  * integers. Only continuous is encoded as floating-point.
+  */
 
-unsigned field_type_from_stat_class( unsigned bitfield ) {
-	return bitfield > 8
-		? MTM_FIELD_TYPE_UNK
-		: field_types[ bitfield ];
+unsigned field_type_from_stat_class( unsigned id ) {
+	return id >= MTM_STATCLASS_COUNT ? MTM_FIELD_TYPE_UNK : field_types[ id ];
 }
 
 
@@ -73,21 +72,5 @@ int mtm_sclass_by_prefix( const char *token ) {
 		}
 	}
 	return MTM_STATCLASS_UNKNOWN;
-}
-
-static const char *_DOMINANT_STATCLASS[5] = {
-	"unknown",		// 0 => 0
-	"boolean",		// 1 => 32-31 = 1
-	"categorical",	// 2 => 32-30 = 2
-	"ordinal",		// 4 => 32-29 = 3
-	"continuous"	// 8 => 32-28 = 4
-};
-
-/**
-  * This treats statistical classes as mutually exclusive
-  */
-const char *mtm_sclass_name( unsigned int bitflags ) {
-	assert( (0xFFFFFFF0 & bitflags ) == 0 );
-	return _DOMINANT_STATCLASS[ bitflags ? 32-__builtin_clz(bitflags) : 0 ]; 
 }
 

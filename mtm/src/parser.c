@@ -193,7 +193,7 @@ static int _parseLine( char *line,
 	   	int verbosity,
 		struct mtm_descriptor *d ) {
 
-	int field_type
+	int ft, field_type
 		= field_type_from_stat_class( stat_class );
 	const bool FIELD_TYPE_INFERRED
 		= (__builtin_popcount( field_type ) != 1 );
@@ -283,11 +283,18 @@ retry:
 			s->buf.cat[ count++ ] = last_value_read.i;
 			break;
 
-		default: // because either _UNKNOWN or multiple bits were set.
-			// This will insure that boolean data represented by {0,1} is
-			// parsed as integral data, not strings, and thus has its
-			// implicit ordering preserved
-			field_type = toktype_infer( token, NULL ); // can't fail.
+		default: // ...because field_type is either _UNKNOWN or set valued.
+			// This insures that boolean data represented by {0,1} is parsed
+			// as integral data, not strings, and thus has its implicit
+			// ordering preserved. This was both original code and a bugfix. 
+			ft = toktype_infer_narrowest_type( token, NULL );
+			assert( __builtin_popcount(ft)==1 /* else infinite loop! */ );
+			// If the type was constrained at all (not simply "unknown"),
+			// then the inferred type MUST be one of the allowed types...
+			if( field_type!=MTM_FIELD_TYPE_UNK && (field_type & ft)==0 ) {
+				return MTM_E_FORMAT_FIELD; // It's not an allowed type!
+			} else
+				field_type = ft;
 #ifdef _DEBUG
 			if( verbosity > 0 ) {
 				fprintf( stderr, "%s: inferred <%s> syntax type from \"%s\"\n",
@@ -323,7 +330,7 @@ retry:
 			if( FIELD_TYPE_INFERRED  ) {
 
 				if( (field_type == MTM_FIELD_TYPE_INT)
-					&& (MTM_FIELD_TYPE_FLT == toktype_infer( token, NULL ) ) ) {
+					&& (MTM_FIELD_TYPE_FLT == toktype_infer_narrowest_type( token, NULL ) ) ) {
 #ifdef _DEBUG
 					fputs( "promoting integral line to float\n", stderr );
 #endif
@@ -340,7 +347,7 @@ retry:
 						= strtof( token, &endpt );
 				} else
 				if( (field_type != MTM_FIELD_TYPE_STR)
-					&& (MTM_FIELD_TYPE_STR == toktype_infer( token, NULL ) ) ) {
+					&& (MTM_FIELD_TYPE_STR == toktype_infer_narrowest_type( token, NULL ) ) ) {
 #ifdef _DEBUG
 					fputs( "revising non-string line to string\n", stderr );
 #endif

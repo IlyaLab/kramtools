@@ -9,7 +9,7 @@ int  toktype_init( const char *na_expression );
 /**
   * Always returns exactly one of the MTM_FIELD_TYPE_x bits.
   */
-int  toktype_infer( const char *pc, unsigned int *base );
+int  toktype_infer_narrowest_type( const char *pc, unsigned int *base );
 
 #endif
 
