@@ -14,8 +14,8 @@
 static int _cmp_key_and_row_id( const void *pvl, const void *pvr ) {
 	const char *l
 		= (const char *)pvl;
-	struct mtm_row_id *r
-		= (struct mtm_row_id*)pvr;
+	struct mtm_row *r
+		= (struct mtm_row*)pvr;
 	return strcmp( l, r->string );
 }
 
@@ -23,9 +23,9 @@ static int _cmp_key_and_row_id( const void *pvl, const void *pvr ) {
 /**
   * Used only by the qsort to sort by row names.
   */
-static int _cmp_row_names( const void *pvl, const void *pvr ) {
-	struct mtm_row_id *l = (struct mtm_row_id*)pvl;
-	struct mtm_row_id *r = (struct mtm_row_id*)pvr;
+static int _cmp_row_id( const void *pvl, const void *pvr ) {
+	struct mtm_row *l = (struct mtm_row*)pvl;
+	struct mtm_row *r = (struct mtm_row*)pvr;
 	return strcmp( l->string, r->string );
 }
 
@@ -36,10 +36,10 @@ static int _cmp_row_names( const void *pvl, const void *pvr ) {
  * by the preprocessor) to facilitate name lookup. If we're running in batch
  * mode we'll convert offsets to names.
  */
-static int _cmp_row_rowoffs( const void *pvl, const void *pvr ) {
-	struct mtm_row_id *l = (struct mtm_row_id*)pvl;
-	struct mtm_row_id *r = (struct mtm_row_id*)pvr;
-	return l->rowoff==r->rowoff ? 0 : ( l->rowoff < r->rowoff?-1:+1 );
+static int _cmp_mtm_row_offsets( const void *pvl, const void *pvr ) {
+	struct mtm_row *l = (struct mtm_row*)pvl;
+	struct mtm_row *r = (struct mtm_row*)pvr;
+	return l->offset==r->offset ? 0 : ( l->offset < r->offset?-1:+1 );
 }
 
 
@@ -63,8 +63,8 @@ void mtm_resolve_rownames( struct mtm_matrix *m, signed long base ) {
 int mtm_resort_rowmap( struct mtm_matrix *m, bool lexigraphic_order ) {
 	if( m->row_map ) {
 		if( m->lexigraphic_order != lexigraphic_order ) {
-			qsort( m->row_map, m->rows, sizeof(struct mtm_row_id),
-				lexigraphic_order ? _cmp_row_names : _cmp_row_rowoffs );
+			qsort( m->row_map, m->rows, sizeof(struct mtm_row),
+				lexigraphic_order ? _cmp_row_id : _cmp_mtm_row_offsets );
 			m->lexigraphic_order = lexigraphic_order;
 		}
 		return 0;
@@ -87,9 +87,9 @@ static bool _sorted_lexigraphic( MTM_ROW_ID_T *map, int n ) {
 	return true;
 }
 
-static bool _sorted_byrowoffset( MTM_ROW_ID_T *map, int n ) {
+static bool _sorted_by_row_offset( MTM_ROW_ID_T *map, int n ) {
 	for(int i = 1; i < n; i++ ) {
-		if( map[i-1].rowoff > map[i].rowoff )
+		if( map[i-1].offset > map[i].offset )
 			return false;
 	}
 	return true;
@@ -105,7 +105,7 @@ static bool _sorted_byrowoffset( MTM_ROW_ID_T *map, int n ) {
   */
 int  mtm_fetch_by_name( struct mtm_matrix *m, struct mtm_feature *f ) {
 
-	struct mtm_row_id *prid;
+	struct mtm_row *prid;
 
 	assert( m->lexigraphic_order );
 	assert( _sorted_lexigraphic( m->row_map, m->rows ) );
@@ -118,12 +118,12 @@ int  mtm_fetch_by_name( struct mtm_matrix *m, struct mtm_feature *f ) {
 			|| ( f->name == NULL ) )
 		return MTM_E_NULLPTR;
 
-	prid = bsearch( f->name, m->row_map, m->rows, sizeof(struct mtm_row_id), _cmp_key_and_row_id );
+	prid = bsearch( f->name, m->row_map, m->rows, sizeof(struct mtm_row), _cmp_key_and_row_id );
 	if( prid ) {
 		const int ROW
-			= prid->rowoff;
+			= prid->offset;
 		f->offset = ROW;
-		f->prop   = m->prop[ ROW ];
+		f->desc   = m->desc[ ROW ];
 		f->data   = m->data + ROW*m->columns;
 		return 0;
 	}
@@ -140,11 +140,11 @@ int  mtm_fetch_by_offset( struct mtm_matrix *m, struct mtm_feature *f ) {
 		return MTM_E_NULLPTR;
 
 	assert( ! m->lexigraphic_order );
-	assert( m->row_map == NULL || _sorted_byrowoffset( m->row_map, m->rows ) );
+	assert( m->row_map == NULL || _sorted_by_row_offset( m->row_map, m->rows ) );
 
 	if( 0 <= ROW && ROW < m->rows ) {
 		f->name = m->row_map ? m->row_map[ ROW ].string : NULL;
-		f->prop = m->prop[ ROW ];
+		f->desc = m->desc[ ROW ];
 		f->data = m->data + ROW*m->columns;
 		return 0;
 	}

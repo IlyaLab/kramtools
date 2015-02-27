@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdbool.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -72,15 +73,15 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 		const int LAST_SECTION
 			= (header->flags & MTMHDR_ROW_LABELS_PRESENT) != 0
 			? S_ROWMAP
-			: S_DESCRIPTOR;
+			: S_DESC;
 		tailsize
 			= header->section[ LAST_SECTION ].offset
 			+ header->section[ LAST_SECTION ].size
-			- header->section[ S_MATRIX ].offset;// because the header need not persist
+			- header->section[ S_DATA ].offset;// because the header need not persist
 	}
 #else
 	tailsize
-		= info.st_size - header->section[ S_MATRIX ].offset;
+		= info.st_size - header->section[ S_DATA ].offset;
 	allocation
 		= page_aligned_ceiling( tailsize );
 #endif
@@ -88,7 +89,7 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 	if( posix_memalign( (void**)&pc, RT_PAGE_SIZE, allocation ) == 0 ) {
 
 		const size_t SIZEOF_HEADER_SECTION
-			= page_aligned_ceiling( header->section[ S_MATRIX ].offset );
+			= page_aligned_ceiling( header->section[ S_DATA ].offset );
 
 		if( fseek( fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
 			return MTM_E_IO;
@@ -100,22 +101,22 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 
 		matrix->data
 			= (mtm_int_t*)pc;
-		matrix->prop
+		matrix->desc
 			= (struct mtm_descriptor *)(pc
-			+ header->section[ S_DESCRIPTOR ].offset
+			+ header->section[ S_DESC ].offset
 			- SIZEOF_HEADER_SECTION);
 
 		if( header->section[ S_ROWID ].offset > 0 ) {
-			matrix->row_names
+			matrix->row_id
 				= (const char *)(pc
 				+ header->section[ S_ROWID ].offset
 				- SIZEOF_HEADER_SECTION);
 		} else
-			matrix->row_names = NULL;
+			matrix->row_id = NULL;
 
 		if( header->section[ S_ROWMAP ].offset > 0 ) {
 			matrix->row_map
-				= (struct mtm_row_id *)(pc
+				= (struct mtm_row *)(pc
 				+ header->section[ S_ROWMAP ].offset
 				- SIZEOF_HEADER_SECTION);
 		} else
@@ -129,8 +130,8 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 		return MTM_E_NOMEM;
 	}
 
-	if( matrix->row_names != NULL && matrix->row_map != NULL )
-		mtm_resolve_rownames( matrix, (signed long)matrix->row_names );
+	if( matrix->row_id != NULL && matrix->row_map != NULL )
+		mtm_resolve_rownames( matrix, (signed long)matrix->row_id );
 
 	matrix->lexigraphic_order
 		= ((header->flags & MTMHDR_ROW_LABELS_LEXORD) != 0);

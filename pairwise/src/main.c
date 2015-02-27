@@ -494,7 +494,7 @@ static int /*ANCP*/ _analyze_cross_product(
 
 	bool completed = true;
 	struct feature_pair fpair;
-	struct mtm_row_id *rrid;
+	struct mtm_row *rrid;
 
 	/**
 	  * Location of left data won't change: same buffer, same offset for
@@ -526,7 +526,7 @@ static int /*ANCP*/ _analyze_cross_product(
 
 		if( fread( (void*)fpair.l.data, sizeof(mtm_int_t), hdr->columns,  fp[0] ) != hdr->columns )
 			break;
-		if( fread( &fpair.l.prop, sizeof(struct mtm_descriptor), 1, fp[1] ) != 1 )
+		if( fread( &fpair.l.desc, sizeof(struct mtm_descriptor), 1, fp[1] ) != 1 )
 			break;
 
 		/**
@@ -542,7 +542,7 @@ static int /*ANCP*/ _analyze_cross_product(
 			fpair.r.offset++ ) {
 
 			fpair.r.name = rrid ? rrid->string : "";
-			fpair.r.prop = _matrix.prop[ fpair.r.offset ];
+			fpair.r.desc = _matrix.desc[ fpair.r.offset ];
 
 			_analyze( &fpair );
 
@@ -791,7 +791,7 @@ static int /*AALL*/ _analyze_all_pairs( void ) {
 	bool completed = true;
 	struct feature_pair fpair;
 
-	struct mtm_row_id *lrid, *rrid;
+	struct mtm_row *lrid, *rrid;
 
 	assert( ! _matrix.lexigraphic_order /* should be row order */ );
 
@@ -803,7 +803,7 @@ static int /*AALL*/ _analyze_all_pairs( void ) {
 		fpair.l.offset++ ) {
 
 		fpair.l.name = lrid ? lrid->string : "";
-		fpair.l.prop = _matrix.prop[ fpair.l.offset ];
+		fpair.l.desc = _matrix.desc[ fpair.l.offset ];
 
 		fpair.r.data = fpair.l.data + _matrix.columns;
 		rrid = lrid ? lrid + 1 : NULL;
@@ -813,7 +813,7 @@ static int /*AALL*/ _analyze_all_pairs( void ) {
 			fpair.r.offset++ ) {
 
 			fpair.r.name = rrid ? rrid->string : "";
-			fpair.r.prop = _matrix.prop[ fpair.r.offset ];
+			fpair.r.desc = _matrix.desc[ fpair.r.offset ];
 
 			_analyze( &fpair );
 
@@ -1424,12 +1424,12 @@ int main( int argc, char *argv[] ) {
 
 			// Skip past the header to the row data.
 
-			if( fseek( ppm[0], hdr.section[ S_MATRIX ].offset, SEEK_SET ) )
+			if( fseek( ppm[0], hdr.section[ S_DATA ].offset, SEEK_SET ) )
 				err( -1, "failed seeking to start of data" );
 
 			// Skip to the descriptor table in the 2nd stream.
 
-			if( fseek( ppm[1], hdr.section[ S_DESCRIPTOR ].offset, SEEK_SET ) )
+			if( fseek( ppm[1], hdr.section[ S_DESC ].offset, SEEK_SET ) )
 				err( -1, "failed seeking to start of data" );
 
 			_analyze_cross_product( &hdr, ppm );

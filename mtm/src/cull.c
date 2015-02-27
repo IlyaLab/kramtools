@@ -48,7 +48,7 @@ static int _cmp_block_r( const void *pvl, const void *pvr ) {
 
 
 static int _load_feature_names( FILE *fp, struct mtm_matrix_header *hdr,
-	struct mtm_row_id **map,
+	struct mtm_row **map,
 	const char **strings ) {
 
 	const size_t SIZEOF_STRINGS
@@ -58,7 +58,7 @@ static int _load_feature_names( FILE *fp, struct mtm_matrix_header *hdr,
 	*strings
 		= calloc( SIZEOF_STRINGS, sizeof(char) );
 	*map
-		= calloc( hdr->rows, sizeof(struct mtm_row_id) );
+		= calloc( hdr->rows, sizeof(struct mtm_row) );
 
 	if( *strings == NULL || *map == NULL ) {
 		err( -1, "failed allocating one or both of %ld and %d bytes",
@@ -80,7 +80,7 @@ static int _load_feature_names( FILE *fp, struct mtm_matrix_header *hdr,
 
 	if( fseek( fp, hdr->section[ S_ROWMAP ].offset, SEEK_SET ) )
 		err( -1, "failed seeking to row map" );
-	if( fread( *map, sizeof(struct mtm_row_id ), hdr->rows, fp ) != hdr->rows )
+	if( fread( *map, sizeof(struct mtm_row ), hdr->rows, fp ) != hdr->rows )
 		err( -1, "failed loading row map" );
 
 	/**
@@ -100,7 +100,7 @@ static int _report( FILE *blocks, FILE *matrix, const struct feature_hash *hashe
 		= ftell( blocks ) / sizeof(struct block);
 	struct block *b
 		= calloc( BLOCKS, sizeof(struct block) );
-	struct mtm_row_id *map = NULL;
+	struct mtm_row *map = NULL;
 	const char *strings    = NULL;
 
 	if( b == NULL )
@@ -232,10 +232,10 @@ int main( int argc, char *argv[] ) {
 		  * Seek to the start of each section.
 		  */
 
-		if( fseek( fpd, hdr.section[ S_DESCRIPTOR ].offset, SEEK_SET ) )
+		if( fseek( fpd, hdr.section[ S_DESC ].offset, SEEK_SET ) )
 			err( -1, "failed seeking to descriptor table" );
 
-		if( fseek( fpm, hdr.section[ S_MATRIX ].offset, SEEK_SET ) )
+		if( fseek( fpm, hdr.section[ S_DATA ].offset, SEEK_SET ) )
 			err( -1, "failed seeking to descriptor table" );
 
 		/**

@@ -59,16 +59,16 @@ static void _echo_matrix( struct mtm_matrix *m,
 	for(int r = 0; r < m->rows; r++ ) {
 
 		const int MISSING
-			= m->prop[r].missing;
+			= m->desc[r].missing;
 		fprintf( fp, "%s%s%c:%c:%d:%d",
 			m->row_map ? m->row_map[r].string : "",
 			m->row_map ? "\t"                 : "",
-			MISSING < m->columns ? "FI"[ m->prop[r].integral ] : '?',
-			m->prop[r].constant ? '!' : '-',
-			m->prop[r].categories,
+			MISSING < m->columns ? "FI"[ m->desc[r].integral ] : '?',
+			m->desc[r].constant ? '!' : '-',
+			m->desc[r].categories,
 			MISSING );
 
-		if( m->prop[r].integral ) {
+		if( m->desc[r].integral ) {
 
 			for(int c = 0; c < m->columns; c++ ) {
 				MTM_INT_T I = *pdata++;

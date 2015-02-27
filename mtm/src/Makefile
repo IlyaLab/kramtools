@@ -26,7 +26,7 @@ LDFLAGS=-lm
 BASENAME=mtm$(INFIX)
 SHARED_LIB=lib$(BASENAME).so
 STATIC_LIB=lib$(BASENAME).a
-EXECUTABLE=ppm
+EXECUTABLES=ppm i2n
 
 SRCLIB=../../lib/c
 CONTRIB=$(SRCLIB)/contrib
@@ -53,7 +53,7 @@ SOURCES+=$(CONTRIB)/md5/md5.c
 endif
 
 
-all : $(EXECUTABLE) $(STATIC_LIB)
+all : $(EXECUTABLES) $(STATIC_LIB)
 
 main.o    : mtmatrix.h mtheader.h syspage.h mterror.h
 load.o    : mtmatrix.h mtheader.h syspage.h mterror.h
@@ -63,6 +63,7 @@ cardinality.o :
 parser    : mtmatrix.h mtheader.h syspage.h mterror.h mtsclass.h \
 	$(SRCLIB)/strset.h
 syspage.o : syspage.h 
+i2n.o     : syspage.h mtmatrix.h mtheader.h mterror.h
 
 $(STATIC_LIB) : $(OBJECTS)
 	ar rcs $@ $^ 
@@ -70,10 +71,10 @@ $(STATIC_LIB) : $(OBJECTS)
 $(SHARED_LIB) : $(OBJECTS)
 	$(CC) -shared -fPIC -o $@ $(CFLAGS) $^ $(LDFLAGS)
 
-$(EXECUTABLE) : main.o $(STATIC_LIB)
+ppm : main.o $(STATIC_LIB)
 	$(CC) -o $@ -static $(CFLAGS) $< -lm -L. -l$(BASENAME)
 
-i2n : nmap.o $(STATIC_LIB)
+i2n : i2n.o $(STATIC_LIB)
 	$(CC) -o $@ -static $(CFLAGS) $< -lm -L. -l$(BASENAME)
 
 rmred : cull.o $(CONTRIB)/md5/md5.o $(STATIC_LIB)
@@ -95,7 +96,7 @@ install : $(SHARED_LIB) $(STATIC_LIB)
 #	install $^ $(INSTALL_LIB)
 
 clean :
-	rm -rf lib$(BASENAME)* i2n $(EXECUTABLE) ut-* $$(find . ../../lib -name "*.o")
+	rm -rf lib$(BASENAME)* $(EXECUTABLES) ut-* $$(find . ../../lib -name "*.o")
 
 .PHONY : clean install
 

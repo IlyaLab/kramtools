@@ -14,13 +14,14 @@
 
 int main( int argc, char *argv[] ) {
 
+	FILE *filter_fp = stdin;
 	struct mtm_matrix_header hdr;
 	FILE *fp = NULL;
 	const char *fname = NULL;
 	int econd;
 
 	if( argc < 2 ) {
-		printf( "%s <preprocessed matrix>\n", argv[0] );
+		printf( "%s <preprocessed matrix> [ <input file> ]\n", argv[0] );
 		exit(-1);
 	} else
 		fname = argv[1];
@@ -29,6 +30,14 @@ int main( int argc, char *argv[] ) {
 	if( NULL == fp )
 		err( -1, "opening %s", fname );
 
+	if( argc > 2 ) {
+		const char *fname = argv[2];
+		filter_fp = fopen( fname, "r" );
+		if( filter_fp == NULL ) {
+			fclose( fp );
+			err( -1, "opening %s", fname );
+		}
+	}
 	if( (econd = mtm_load_header( fp, &hdr )) == MTM_OK ) {
 
 		int lnum = 1;
@@ -42,11 +51,11 @@ int main( int argc, char *argv[] ) {
 			= hdr.section[ S_ROWMAP ].size;
 		const char *strings
 			= calloc( SIZEOF_STRINGS, sizeof(char) );
-		struct mtm_row_id *map
-			= calloc( hdr.rows, sizeof(struct mtm_row_id) );
+		struct mtm_row *map
+			= calloc( hdr.rows, sizeof(struct mtm_row) );
 
 		if( strings == NULL || map == NULL ) {
-			err( -1, "failed allocating one or both of %ld and %d bytes",
+			err( -1, "failed allocating one or both of %ld and %ld bytes",
 				SIZEOF_STRINGS, SIZEOF_MAP );
 		}
 
@@ -65,7 +74,7 @@ int main( int argc, char *argv[] ) {
 
 		if( fseek( fp, hdr.section[ S_ROWMAP ].offset, SEEK_SET ) )
 			err( -1, "failed seeking to row map" );
-		if( fread( (void *)map, sizeof(struct mtm_row_id ), hdr.rows, fp ) != hdr.rows )
+		if( fread( (void *)map, sizeof(struct mtm_row ), hdr.rows, fp ) != hdr.rows )
 			err( -1, "failed loading row map" );
 
 		fclose( fp );
@@ -78,7 +87,7 @@ int main( int argc, char *argv[] ) {
 		for(int i = 0; i < hdr.rows; i++ )
 			map[i].string += (long)strings;
 
-		while( ( llen = getline( &line, &blen, stdin ) ) > 0 ) {
+		while( ( llen = getline( &line, &blen, filter_fp ) ) > 0 ) {
 			const int ROW
 				= atoi( line );
 			if( 0 <= ROW && ROW < hdr.rows )
@@ -91,9 +100,9 @@ int main( int argc, char *argv[] ) {
 		}
 		if( line )
 			free( line );
-fail:
+
 		if( strings )
-			free( strings );
+			free( (void*)strings );
 		if( map )
 			free( map );
 
@@ -105,6 +114,8 @@ fail:
 	else
 		err( -1, "failed loading header from %s", fname );
 
+	if( filter_fp )
+		fclose( filter_fp );
 	if( fp )
 		fclose( fp );
 

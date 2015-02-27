@@ -10,17 +10,17 @@
   *    one section and the start of the next).
   * 3. Sections are ordered according to the enumeration below.
   * 4. Only the rowmap section requires "relocation" upon loading.
-  *    That is, it's string pointer are actually offsets all of which
-  *    require the address of the ROWID section added to them.
+  *    That is, it's string pointers are actually offsets from the
+  *    base of the ROWID section.
   */
 
 #define MTM_SIGNATURE ("MULTIMX")
 
 enum SECTION {
-	S_MATRIX = 0,	// a 2D array of mtm_int_t
-	S_DESCRIPTOR,	// an array of struct mtm_descriptor
-	S_ROWID,		// a packed sequence of NUL-terminated strings
-	S_ROWMAP,		// an array of struct mtm_row_id, pointing into S_ROWID
+	S_DATA = 0,	// a 2D array of mtm_int_t
+	S_DESC,	    // an array of struct mtm_descriptor
+	S_ROWID,	// a PACKED sequence of NUL-terminated strings
+	S_ROWMAP,	// an array of struct mtm_row, pointing into S_ROWID
 	S_COUNT
 };
 
@@ -42,9 +42,9 @@ struct mtm_matrix_header {
 	unsigned int columns;
 
 	struct section_descriptor section[ S_COUNT ];
-
+#ifdef HAVE_MD5
 	char md5[32];
-
+#endif
 } __attribute__((packed)); // 132 bytes
 
 #define MTMHDR_ROW_LABELS_PRESENT (0x00000001)

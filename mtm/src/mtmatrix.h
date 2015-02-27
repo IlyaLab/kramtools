@@ -80,7 +80,7 @@ typedef MTM_INT_T      *MTM_ROW_PTR;
 #endif
 
 /**
-  * This bitfield stores information about a feature's "quality,"
+  * This struct stores information about a feature's "quality,"
   */
 struct mtm_descriptor {
 
@@ -143,15 +143,15 @@ typedef mtm_descriptor_t *mtm_descriptor_ptr;
 
 ////////////////////////////////////////////////////////////////////////////
 
-struct mtm_row_id {
+struct mtm_row {
 	/**
 	  * This is the offset -in the matrix itself- (which is NEVER reordered).
 	  */
-	unsigned    rowoff;
+	unsigned    offset;
 	const char *string;
 };
-typedef struct mtm_row_id mtm_row_id_t;
-typedef const mtm_row_id_t MTM_ROW_ID_T;
+typedef struct mtm_row mtm_row_t;
+typedef const mtm_row_t MTM_ROW_ID_T;
 
 ////////////////////////////////////////////////////////////////////////////
 
@@ -174,20 +174,22 @@ struct mtm_matrix {
 	  */
 	mtm_int_t *data;
 
-	struct mtm_descriptor *prop;
+	struct mtm_descriptor *desc;
 
 	/**
 	  * This is only valid if the file was JIT preprocessed.
 	  * Otherwise, the rownames reside with the main (memory-mapped)
 	  * body of the file (and won't need to be indpendently freed).
 	  */
-	const char *row_names;
+	const char *row_id;
 
 	/**
-	  * This is always a free-standing array regardless of how the
-	  * matrix was acquired.
+	  * This either maps 
+	  * 1. row offsets => row names or 
+	  * 2. row names => row offsets
+	  * ...depending on how it is sorted (lexigraphic_order). 
 	  */
-	struct mtm_row_id *row_map;
+	struct mtm_row *row_map;
 
 	/**
 	  * Indicates that the row_map is in lexigraphic (string) order
@@ -252,12 +254,12 @@ int mtm_parse( FILE *input,
 struct mtm_feature {
 	/**
 	  * This is the offset -in the matrix itself- (which is NEVER reordered).
-	  * The array of struct mtm_row_id in m.row_map is (re)sorted for either
+	  * The array of struct mtm_row in m.row_map is (re)sorted for either
 	  * accessing the matrix by name or my offset.
 	  */
 	int                   offset;
 	const char           *name;
-	struct mtm_descriptor prop;
+	struct mtm_descriptor desc;
 	MTM_ROW_PTR           data;
 };
 

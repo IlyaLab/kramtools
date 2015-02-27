@@ -8,10 +8,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <sys/sendfile.h>
-#ifdef _DEBUG
 #include <sys/types.h>   // for lseek
 #include <unistd.h>      // for lseek
-#endif
 #include <errno.h>
 #include <err.h>
 #include <assert.h>
@@ -90,9 +88,9 @@ struct scratch {
 	/**
 	  * Temp files to contain unpredictably-sized arrays, each of which
 	  * corresponds to one of the data sections in struct mtm_matrix_header. 
-	  * NOTE THAT THE ONE INDEXED BY S_MATRIX IS NOT USED.
+	  * NOTE THAT THE ONE INDEXED BY S_DATA IS NOT USED.
 	  */
-	FILE *cache[ S_COUNT ];
+	FILE *tmp_section[ S_COUNT ];
 };
 
 static void _free_scratch( struct scratch *s ) {
@@ -103,8 +101,8 @@ static void _free_scratch( struct scratch *s ) {
 		szs_destroy( s->set );
 
 	for(int i = 0; i < S_COUNT; i++ ) {
-		if( s->cache[i] != NULL )
-			fclose( s->cache[i] );
+		if( s->tmp_section[i] != NULL )
+			fclose( s->tmp_section[i] );
 	}
 
 	if( s->buf.num )
@@ -120,7 +118,7 @@ static void _free_scratch( struct scratch *s ) {
   */
 static int _alloc_scratch( struct scratch *s,
 		int max_allowed_categories,
-		bool need_row_caches,
+		bool include_rowlabel_sections,
 		int verbosity ) {
 
 	assert( sizeof(mtm_int_t) == sizeof(mtm_fp_t) );
@@ -138,20 +136,20 @@ static int _alloc_scratch( struct scratch *s,
 	}
 
 	// Temp file caches. MATRIX was allocated above this scope.
-	// We always need DESCRIPTOR and may or may not need ROW caches.
+	// We always need DESCRIPTOR and may or may not need ROW sections.
 
-	s->cache[ S_DESCRIPTOR ] = tmpfile();
-	if( s->cache[ S_DESCRIPTOR ] == NULL )
+	s->tmp_section[ S_DESC ] = tmpfile();
+	if( s->tmp_section[ S_DESC ] == NULL )
 		goto failure;
 
-	if( need_row_caches ) {
+	if( include_rowlabel_sections ) {
 
-		s->cache[ S_ROWID  ] = tmpfile();
-		if( s->cache[ S_ROWID ] == NULL )
+		s->tmp_section[ S_ROWID  ] = tmpfile();
+		if( s->tmp_section[ S_ROWID ] == NULL )
 			goto failure;
 
-		s->cache[ S_ROWMAP ] = tmpfile();
-		if( s->cache[ S_ROWMAP ] == NULL )
+		s->tmp_section[ S_ROWMAP ] = tmpfile();
+		if( s->tmp_section[ S_ROWMAP ] == NULL )
 			goto failure;
 	}
 
@@ -483,9 +481,7 @@ static void _pad_to_pagesize( FILE *fp ) {
 
 
 /**
-  * Parse a text matrix satisfying the format description (elsewhere)
-  * leaving the results in RAM and filling out the struct mtm_matrix with
-  * the locations of the various parts of the parse results.
+  * Parse a text matrix satisfying the format description (elsewhere).
   *
   * Parsing means:
   * 1. the file is converted to binary form
@@ -496,8 +492,23 @@ static void _pad_to_pagesize( FILE *fp ) {
   * 1. memory resident, contained in a struct mtm_matrix.
   * 2. file resident in a binary file.
   *
-  * The <m> is non-NULL a memory-resident result is created.
-  * If <outout> is non-NULL the result is written to file.
+  * Binary structures containing the parsed content are written to tmp 
+  * files. Before returning, these files are either...
+  *
+  * 1. reloaded into RAM if <m> is non NULL (implying user wants it
+  *    all RAM-resident, or
+  * 2. consolidated into the file pointed to by <fout>.
+  *
+  * ...or both. If <m> is non-NULL a memory-resident result is created.
+  * If <fout> is non-NULL the result is written to file.
+  *
+  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  *
+  * For efficiency, the data section of the binary matrix is "built" in the
+  * offset in the data_fp at which it will reside if file output is 
+  * requested.
+  *
+  * !!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Warning !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   */
 int mtm_parse( FILE *input,
 		unsigned int flags,
@@ -535,7 +546,7 @@ int mtm_parse( FILE *input,
 	  * the file, bypassing tmp files altogether.
 	  */
 
-	FILE *final_fp = fout ? fout : tmpfile();
+	FILE *data_fp = fout ? fout : tmpfile();
 
 #ifdef HAVE_MD5
 	md5_state_t hashstate;
@@ -543,14 +554,14 @@ int mtm_parse( FILE *input,
 	md5_init( &hash_state );
 #endif
 
-	if( final_fp == NULL )
+	if( data_fp == NULL )
 		return MTM_E_IO;
 
 	/**
 	  * Either way the file pointer must be pre-positioned to skip the
 	  * header.
 	  */
-	if( fseek( final_fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
+	if( fseek( data_fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
 		return MTM_E_IO;
 
 	memset( &s, 0, sizeof(struct scratch));
@@ -652,16 +663,16 @@ int mtm_parse( FILE *input,
 				stat_class = infer_stat_class( line );
 
 			if( PRESERVE_ROWNAMES ) {
-				const struct mtm_row_id srn = {
+				const struct mtm_row srn = {
 					fnum,
-					(const char*)ftell(s.cache[S_ROWID])
+					(const char*)ftell(s.tmp_section[S_ROWID])
 				};
 				const int NCHAR
 					= pc-line; // include the NUL terminator!
-				if( fwrite( line, sizeof(char), NCHAR, s.cache[S_ROWID] )
+				if( fwrite( line, sizeof(char), NCHAR, s.tmp_section[S_ROWID] )
 						!= NCHAR
 					||
-					fwrite( &srn, sizeof(struct mtm_row_id), 1, s.cache[S_ROWMAP] )
+					fwrite( &srn, sizeof(struct mtm_row), 1, s.tmp_section[S_ROWMAP] )
 						!= 1 ) {
 					econd = MTM_E_IO;
 					break;
@@ -683,12 +694,12 @@ int mtm_parse( FILE *input,
 		  * descriptor to be a prefix on a row when that's the case.
 		  */
 
-		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.cache[S_DESCRIPTOR] )
+		if( fwrite( &d, sizeof(struct mtm_descriptor), 1, s.tmp_section[S_DESC] )
 				!= 1 ) {
 			econd = MTM_E_IO;
 			break;
 		}
-		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, final_fp )
+		if( fwrite( s.buf.cat, sizeof(mtm_int_t), s.data_column_count, data_fp )
 				!= s.data_column_count ) {
 			econd = MTM_E_IO;
 			break;
@@ -705,7 +716,7 @@ int mtm_parse( FILE *input,
 #endif
 
 	/**
-	  * If a file output was requested (<fout> was non-NULL), final_fp *is*
+	  * If a file output was requested (<fout> was non-NULL), data_fp *is*
 	  * fout, and the binary format should be built in there. That is, we
 	  * consolidate the caches into that one file and prepend a header.
 	  */
@@ -726,57 +737,57 @@ int mtm_parse( FILE *input,
 
 		/**
 		  * The sizes of each section are the current file offsets of the
-		  * corresponding caches (except the S_MATRIX section which needs
+		  * corresponding caches (except the S_DATA section which needs
 		  * the header block subtracted).
 		  */
 
-		hdr.section[ S_MATRIX ].offset
+		hdr.section[ S_DATA ].offset
 			= SIZEOF_HEADER_SECTION;
-		hdr.section[ S_MATRIX ].size
-			= ftell( final_fp )
-			- hdr.section[ S_MATRIX ].offset;
+		hdr.section[ S_DATA ].size
+			= ftell( data_fp )
+			- hdr.section[ S_DATA ].offset;
 
-		// The other caches are simple (no header prefixes).
+		// The other sections are simple (no header prefixes).
 
-		hdr.section[ S_DESCRIPTOR ].size
-			= ftell( s.cache[ S_DESCRIPTOR ] );
-		rewind( s.cache[ S_DESCRIPTOR ] );
+		hdr.section[ S_DESC ].size
+			= ftell( s.tmp_section[ S_DESC ] );
+		rewind( s.tmp_section[ S_DESC ] );
 
-		// Row label caches may not even be present...
+		// Row label sections may not even be present...
 
-		if( s.cache[ S_ROWID ] ) {
+		if( s.tmp_section[ S_ROWID ] ) {
 			hdr.section[ S_ROWID ].size
-				= ftell( s.cache[ S_ROWID ] );
-			rewind( s.cache[ S_ROWID ] );
+				= ftell( s.tmp_section[ S_ROWID ] );
+			rewind( s.tmp_section[ S_ROWID ] );
 		}
 
-		if( s.cache[ S_ROWMAP ] ) {
+		if( s.tmp_section[ S_ROWMAP ] ) {
 			hdr.section[ S_ROWMAP ].size
-				= ftell( s.cache[ S_ROWMAP ] );
-			rewind( s.cache[ S_ROWMAP ] );
+				= ftell( s.tmp_section[ S_ROWMAP ] );
+			rewind( s.tmp_section[ S_ROWMAP ] );
 		}
 
-		// Copy each non-empty cache into the file sequentially
+		// Copy each non-empty section into the file sequentially
 		// and beginning on page boundaries.
 
-		for(int i = S_DESCRIPTOR; i < S_COUNT; i++ ) {
-			if( s.cache[ i ] ) {
-				_pad_to_pagesize( final_fp );
-				hdr.section[ i ].offset = ftell( final_fp );
+		for(int i = S_DESC; i < S_COUNT; i++ ) {
+			if( s.tmp_section[ i ] ) {
+				_pad_to_pagesize( data_fp );
+				hdr.section[ i ].offset = ftell( data_fp );
 				sendfile(
-					fileno( final_fp ),
-					fileno( s.cache[i] ),
+					fileno( data_fp ),
+					fileno( s.tmp_section[i] ),
 					NULL,
 					hdr.section[i].size );
 				// Need to keep the C library FILE* in sync with the
 				// preceding manipulation of the lower-level file.
 				// This is one way to do it...
-				fseek( final_fp, 
-					lseek( fileno( final_fp ), 0, SEEK_CUR ),
+				fseek( data_fp, 
+					lseek( fileno( data_fp ), 0, SEEK_CUR ),
 					SEEK_SET );
 #ifdef _DEBUG
-				printf( "fd@%ld\n", lseek(fileno( final_fp ),0,SEEK_CUR) );
-				printf( "fp@%ld\n", ftell(        final_fp )             );
+				printf( "fd@%ld\n", lseek(fileno( data_fp ),0,SEEK_CUR) );
+				printf( "fp@%ld\n", ftell(        data_fp )             );
 #endif
 			}
 		}
@@ -786,97 +797,103 @@ int mtm_parse( FILE *input,
 			sprintf( hdr.md5 + 2*i, "%02x", checksum[i] );
 		hdr.md5[ MD5_DIGEST_LENGTH*2 ] = 0;
 #endif
-		rewind( final_fp );
-		fwrite( &hdr, sizeof(hdr), 1, final_fp );
-		_pad_to_pagesize( final_fp );
+		rewind( data_fp );
+		fwrite( &hdr, sizeof(hdr), 1, data_fp );
+		_pad_to_pagesize( data_fp );
 #if 0
 		// If caller *also* wants a RAM resident matrix, we can load it from
 		// the file we just created by the standard route, or take a more
-		// efficient approach (further below). Leaving the more efficient in
-		// place for now because it's tested!
+		// efficient approach (below). Leaving the more efficient in place
+		// for now because it's tested!
 
 		if( m ) {
-			rewind( final_fp );
-			mtm_load( final_fp, m, NULL );
+			rewind( data_fp );
+			mtm_load( data_fp, m, NULL );
 		}
 #endif
 	}
 
 	if( m ) {
 
-		const off_t SECTION_OFFSET[ S_COUNT ] = {
-			SIZEOF_HEADER_SECTION,
-			0,0,0
-		};
 		size_t    sizeof_part[4];
 		size_t pa_sizeof_part[4];
-		char *blob = NULL;
-		size_t blobsize = 0;
+		char *runtime_image = NULL;
+		size_t sizeof_rt_image = 0;
 
 		memset(    sizeof_part, 0, sizeof(   sizeof_part) );
 		memset( pa_sizeof_part, 0, sizeof(pa_sizeof_part) );
 		memset(              m, 0, sizeof(struct mtm_matrix) );
 
-		assert( s.cache[ S_MATRIX ] == NULL );
-		s.cache[ S_MATRIX ] = final_fp; // ...simplifies the next few lines.
+		assert( s.tmp_section[ S_DATA ] == NULL );
 
-		// Determine the file sizes of each cache and total size
+		// Determine the file sizes of each section and total size
 
-		for(int i = 0; i < S_COUNT; i++ ) {
-			if( s.cache[i] ) {
-				sizeof_part[i]    = ftell( s.cache[i] ) - SECTION_OFFSET[i];
+		sizeof_part[S_DATA]
+			= ftell( data_fp )
+			- SIZEOF_HEADER_SECTION; // This is S_DATA' special treatment.
+		pa_sizeof_part[S_DATA]
+			= page_aligned_ceiling( sizeof_part[S_DATA] );
+		sizeof_rt_image
+			= pa_sizeof_part[S_DATA];
+
+		// The remaining sections all start at 0 in their tmpfiles...
+
+		for(int i = S_DESC; i < S_COUNT; i++ ) {
+			if( s.tmp_section[i] ) {
+				sizeof_part[i]    = ftell( s.tmp_section[i] );
 				pa_sizeof_part[i] = page_aligned_ceiling( sizeof_part[i] );
-				blobsize         += pa_sizeof_part[i];
-#ifdef _DEBUG
-				if( verbosity > 0 ) {
-					fprintf( stderr, "%s: cache %d: %ld bytes on disk, %ld bytes in RAM\n",
-						MTMLIB, i, sizeof_part[i], pa_sizeof_part[i] );
-				}
-#endif
+				sizeof_rt_image  += pa_sizeof_part[i];
 			}
 		}
 
-#ifdef _DEBUG
-		if( verbosity > 0 ) {
-			fprintf( stderr, "%s: %d row X %d column matrix, sizeof memory-resident rep is %ld\n",
-				MTMLIB, fnum, s.data_column_count, blobsize );
-		}
-#endif
+		/**
+		  * Allocate a single large chunk of memory which will contain the
+		  * either 2 or 4 sections of the runtime image at their assigned
+		  * offsets.
+		  */
 
-		if( posix_memalign( (void**)&blob, RT_PAGE_SIZE, blobsize ) == 0 ) {
+		if( posix_memalign( (void**)&runtime_image, RT_PAGE_SIZE, sizeof_rt_image ) == 0 ) {
 
-			int i;
-			char *ptr = blob;
-			for(i = 0; i < S_COUNT; i++ ) {
-				if( s.cache[i] ) { // ignore ununsed caches
+			int i = 0;
+			char *ptr = runtime_image;
 
-					// Load the cache back into RAM...
+			// Load the data section separately since it doesn't reside at
+			// offset 0 in its cache file.
 
-					if( fflush( s.cache[i] ) ||
-						fseek( s.cache[i], SECTION_OFFSET[i], SEEK_SET ) ||
-						fread( ptr, sizeof_part[i], 1, s.cache[i] ) != 1 ) {
-						warnx( "%s: failed reading cache %d", __FILE__, i );
+			if( fflush( data_fp ) ||
+				fseek( data_fp, SIZEOF_HEADER_SECTION, SEEK_SET ) ||
+				fread( ptr, sizeof_part[ S_DATA ], 1, data_fp ) != 1 ) {
+				warnx( "%s: failed reading section %d", __FILE__, i );
+				goto failure;
+			}
+			m->data = (mtm_int_t *)ptr;
+			ptr += pa_sizeof_part[ S_DATA ];
+
+			// ...the the others.
+
+			for(i = S_DESC; i < S_COUNT; i++ ) {
+				if( s.tmp_section[i] ) { // ignore ununsed sections
+
+					// Load the section back into RAM...
+
+					if( fflush( s.tmp_section[i] ) ||
+						fseek( s.tmp_section[i], 0, SEEK_SET ) ||
+						fread( ptr, sizeof_part[i], 1, s.tmp_section[i] ) != 1 ) {
+						warnx( "%s: failed reading section %d", __FILE__, i );
 						break;
 					}
-#ifdef _DEBUG
-					if( verbosity > 2 )
-						fprintf( stderr, "%s: %d <= %p (%ld bytes)\n",
-							MTMLIB, i, ptr, sizeof_part[i] );
-#endif
+
 					// ...and update the matrix pointer.
 
 					switch( i ) {
-					case S_MATRIX:
-						m->data      = (mtm_int_t *)ptr;
-						break;
-					case S_DESCRIPTOR:
-						m->prop      = (struct mtm_descriptor *)ptr;
+					case S_DESC:
+						m->desc    = (struct mtm_descriptor *)ptr;
 						break;
 					case S_ROWID:
-						m->row_names = (const char *)ptr;
+						m->row_id  = (const char *)ptr;
 						break;
 					case S_ROWMAP:
-						m->row_map   = (struct mtm_row_id *)ptr;
+						m->row_map = (struct mtm_row *)ptr;
 						break;
 					default:
 						errx( -1, _BUG, __FILE__, __LINE__ );
@@ -884,25 +901,24 @@ int mtm_parse( FILE *input,
 					ptr += pa_sizeof_part[i];
 				}
 			}
-			if( i < S_COUNT ) {
-				free( blob );
-				blob = NULL;
+failure:
+			if( i < S_COUNT /* incomplete initialization */ ) {
+				free( runtime_image );
+				runtime_image = NULL;
 			} else {
 				m->destroy = mtm_free_matrix;
-				m->storage = blob;
+				m->storage = runtime_image;
 			}
 		} else {
 			warnx( "failed allocating RAM in %s", __func__ );
 			return MTM_E_NOMEM;
 		}
 
-		s.cache[S_MATRIX] = NULL;
-
 		m->rows    = fnum;
 		m->columns = s.data_column_count;
 
-		if( m->row_names != NULL && m->row_map != NULL )
-			mtm_resolve_rownames( m, (signed long)m->row_names );
+		if( m->row_id != NULL && m->row_map != NULL )
+			mtm_resolve_rownames( m, (signed long)m->row_id );
 
 		// Rows' order is currently the same as in the input. This might be
 		// lexigraphically sorted order, but we don't *know* that, so...

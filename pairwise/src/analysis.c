@@ -149,10 +149,10 @@ int covan_exec(
 		const struct feature_pair *pair,
 		struct CovariateAnalysis *covan ) {
 
-	const unsigned int C1
-		= pair->l.prop.categories;
-	const unsigned int C2
-		= pair->r.prop.categories;
+	const unsigned int LC
+		= pair->l.desc.categories;
+	const unsigned int RC
+		= pair->r.desc.categories;
 
 	unsigned unused1 = 0;
 	unsigned unused2 = 0;
@@ -173,24 +173,24 @@ int covan_exec(
 
 	// Because we don't anticipate ordinal features yet...
 
-	assert( (pair->l.prop.integral > 0) == (C1 > 0) );
-	assert( (pair->r.prop.integral > 0) == (C2 > 0) );
+	assert( (pair->l.desc.integral > 0) == (LC > 0) );
+	assert( (pair->r.desc.integral > 0) == (RC > 0) );
 
 	covan->stat_class.left
-		= C1 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+		= LC > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
 	covan->stat_class.right
-		= C2 > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+		= RC > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
 
 	/**
 	  * Determine feature classes and check for univariate degeneracy.
 	  * Univariate degeneracy precludes further analysis. 
 	  */
 
-	if( pair->l.prop.constant || pair->r.prop.constant ) {
+	if( pair->l.desc.constant || pair->r.desc.constant ) {
 		covan->status = COVAN_E_UNIVAR_DEGEN;
 		return -1;
 	} else
-	if( C1 > MAX_CATEGORY_COUNT || C2 > MAX_CATEGORY_COUNT ) {
+	if( LC > MAX_CATEGORY_COUNT || RC > MAX_CATEGORY_COUNT ) {
 		covan->status = COVAN_E_TOOMANY_CATS;
 		return -1;
 	}
@@ -254,7 +254,7 @@ int covan_exec(
 
 			assert( covan->stat_class.left == MTM_STATCLASS_CATEGORICAL );
 
-			cat_clear( _caccum, C1, C2 );
+			cat_clear( _caccum, LC, RC );
 
 			// Note that cardinality of univariate features says NOTHING about 
 			// the final table after pairs with NA's are removed; it could be
@@ -310,7 +310,7 @@ int covan_exec(
 
 			assert( covan->stat_class.right == MTM_STATCLASS_CONTINUOUS );
 
-			mix_clear( _maccum, C1 );
+			mix_clear( _maccum, LC );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
@@ -339,7 +339,7 @@ int covan_exec(
 			assert( covan->stat_class.left == MTM_STATCLASS_CONTINUOUS && 
 					covan->stat_class.right == MTM_STATCLASS_CATEGORICAL );
 
-			mix_clear( _maccum, C2 );
+			mix_clear( _maccum, RC );
 
 			for(int i = 0; i < max_sample_count; i++ ) {
 
