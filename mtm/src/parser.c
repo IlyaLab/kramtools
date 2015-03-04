@@ -59,6 +59,90 @@ static void _pad_to_pagesize( FILE *fp ) {
 
 
 /**
+  * Merge the content of the tmpfiles in section_fp[] into fp.
+  * Incidentally, if the caller of mtm_parse wanted a filesystem resident
+  * result, then fp *is* that file. Otherwise, fp is also a tmpfile.
+  */
+static int _merge_tmpfiles(
+		struct section_descriptor *section, FILE **section_fp, FILE *fp ) {
+
+	/**
+	  * The destination FILE fp already contains the matrix data.
+	  * We just need to merge in the other tmpfiles at the correct offsets.
+	  */
+
+	assert( ftell(fp) > section[ S_DATA ].offset );
+
+	/**
+	  * The sizes of each section are the current file offsets of the
+	  * corresponding caches (except the S_DATA section which needs
+	  * the header block subtracted).
+	  */
+
+	section[ S_DATA ].size
+		= ftell( fp )
+		- section[ S_DATA ].offset;
+
+	// The other section tmpfiles are simple: their content hasn't been
+	// offset the way the file containing S_DATA was, so their sizes are
+	// their current offsets.
+
+	section[ S_DESC ].size
+		= ftell( section_fp[ S_DESC ] );
+	rewind( section_fp[ S_DESC ] );
+
+	// Row label sections may not even be present...
+
+	if( section_fp[ S_ROWID ] ) {
+		section[ S_ROWID ].size
+			= ftell( section_fp[ S_ROWID ] );
+		rewind( section_fp[ S_ROWID ] );
+	}
+
+	if( section_fp[ S_ROWMAP ] ) {
+		section[ S_ROWMAP ].size
+			= ftell( section_fp[ S_ROWMAP ] );
+		rewind( section_fp[ S_ROWMAP ] );
+	}
+
+	// Copy each non-empty section into the file sequentially
+	// and beginning on page boundaries.
+
+	for(int i = S_DESC; i < S_COUNT; i++ ) {
+		if( section_fp[ i ] ) {
+
+			_pad_to_pagesize( fp );
+			section[ i ].offset = ftell( fp );
+
+			if( sendfile(
+				fileno( fp ),
+				fileno( section_fp[i] ),
+				NULL,
+				section[i].size ) < 0 ) {
+				warn( "%s:%d:%s: sendfile", __FILE__, __LINE__, __func__ );
+				return MTM_E_IO;
+			}
+
+			// Need to keep the C library FILE* in sync with the
+			// preceding manipulation of the lower-level file.
+			// This is one way to do it...
+
+			if( fseek( fp, 
+				lseek( fileno( fp ), 0, SEEK_CUR ),
+				SEEK_SET ) ) {
+				warn( "%s:%d:%s: sendfile", __FILE__, __LINE__, __func__ );
+				return MTM_E_IO;
+			}
+
+			assert( lseek(fileno( fp ),0,SEEK_CUR) == ftell(fp ) );
+		}
+	}
+
+	return 0;
+}
+
+
+/**
   * Parse a text matrix satisfying the format description (elsewhere).
   *
   * Parsing means:
@@ -94,8 +178,6 @@ int mtm_parse( FILE *input,
 		FILE *output_fp,
 		struct mtm_matrix *output_m ) {
 
-	const size_t SIZEOF_HEADER_BLOCK
-		= page_aligned_ceiling(sizeof(struct mtm_matrix_header));
 	const int verbosity
 		= MTM_VERBOSITY_MASK & flags;
 	const bool EXPECT_ROW_NAMES
@@ -140,6 +222,20 @@ int mtm_parse( FILE *input,
 	memset( &hdr, 0, sizeof(struct mtm_matrix_header) );
 	memset( tmp_section, 0, sizeof(tmp_section) );
 
+	/**
+	  * Set up fixed parts of the header.
+	  */
+
+	memcpy( hdr.sig, MTM_SIGNATURE, sizeof(hdr.sig) );
+	hdr.endian      = 0x04030201;
+	hdr.version     = 0x01000000;
+	hdr.flags       = PRESERVE_ROWNAMES ? MTMHDR_ROW_LABELS_PRESENT : 0;
+	// The string table is always saved in the matrix' row order, not lexigraphic.
+	hdr.header_size = sizeof(struct mtm_matrix_header);
+	hdr.sizeof_cell = sizeof(mtm_int_t);
+	hdr.section[ S_DATA ].offset
+		= page_aligned_ceiling(sizeof(struct mtm_matrix_header));
+
 	if( data_fp == NULL )
 		return MTM_E_IO;
 
@@ -148,7 +244,7 @@ int mtm_parse( FILE *input,
 	  * we'll "back up" and write as the very last step.
 	  */
 
-	if( fseek( data_fp, SIZEOF_HEADER_BLOCK, SEEK_SET ) )
+	if( fseek( data_fp, hdr.section[ S_DATA ].offset, SEEK_SET ) )
 		return MTM_E_IO;
 
 	// Preceding was last early return; must execute cleanup at bottom.
@@ -234,6 +330,9 @@ int mtm_parse( FILE *input,
 				econd = MTM_E_FORMAT_MATRIX;
 				break;
 			}
+	
+			hdr.columns = f.length;
+
 			if( feature_alloc_encode_state( &f ) ) {
 				econd = MTM_E_SYS;
 				break;
@@ -283,119 +382,53 @@ int mtm_parse( FILE *input,
 	if( line )
 		free( line );
 
+	/**
+	  * We're done with row-encoding state, and we now know the row count.
+	  */
+
+	feature_free_encode_state( &f );
+	hdr.rows = fnum;
+
 	if( econd == MTM_OK ) {
 
+		econd = _merge_tmpfiles( hdr.section, tmp_section, data_fp );
+
+		if( econd == 0 ) {
+
+			/**
+			  * Finish the header...
+			  */
+
+			hdr.sizeof_rt_image 
+				= ftell( data_fp ) 
+				- hdr.section[ S_DATA ].offset;
 #ifdef HAVE_MD5
-		md5_finish( &hashstate, checksum );
-		for(int i = 0; i < MD5_DIGEST_LENGTH; i++ )
-			sprintf( hdr.md5 + 2*i, "%02x", checksum[i] );
+			md5_finish( &hashstate, checksum );
+			for(int i = 0; i < MD5_DIGEST_LENGTH; i++ )
+				sprintf( hdr.md5 + 2*i, "%02x", checksum[i] );
 #endif
+			/**
+			  * ...and write it, now that all its contents are complete.
+			  */
 
-		/**
-		  * Build the result in data_fp. If file output was requested, then
-		  * data_fp *is* that file. Otherwise, data_fp is a tmpfile.
-		  * If file output was not requested--that is, if caller only wants
-		  * a RAM-resident matrix--then this is an unnecessary step, but
-		  * extra work here is preferable to maintaining two code paths!
-		  */
-
-		memcpy( hdr.sig, MTM_SIGNATURE, sizeof(hdr.sig) );
-		hdr.endian      = 0x04030201;
-		hdr.version     = 0x01000000;
-		hdr.flags       = PRESERVE_ROWNAMES ? MTMHDR_ROW_LABELS_PRESENT : 0;
-		// The string table is always saved in the matrix' row order, not lexigraphic.
-		hdr.header_size = sizeof(struct mtm_matrix_header);
-		hdr.sizeof_cell = sizeof(mtm_int_t);
-		hdr.rows        = fnum;
-		hdr.columns     = f.length;
-
-		/**
-		  * The sizes of each section are the current file offsets of the
-		  * corresponding caches (except the S_DATA section which needs
-		  * the header block subtracted).
-		  */
-
-		hdr.section[ S_DATA ].offset
-			= SIZEOF_HEADER_BLOCK;
-		hdr.section[ S_DATA ].size
-			= ftell( data_fp )
-			- hdr.section[ S_DATA ].offset;
-
-		// The other sections are simple (no header prefixes).
-
-		hdr.section[ S_DESC ].size
-			= ftell( tmp_section[ S_DESC ] );
-		rewind( tmp_section[ S_DESC ] );
-
-		// Row label sections may not even be present...
-
-		if( tmp_section[ S_ROWID ] ) {
-			hdr.section[ S_ROWID ].size
-				= ftell( tmp_section[ S_ROWID ] );
-			rewind( tmp_section[ S_ROWID ] );
-		}
-
-		if( tmp_section[ S_ROWMAP ] ) {
-			hdr.section[ S_ROWMAP ].size
-				= ftell( tmp_section[ S_ROWMAP ] );
-			rewind( tmp_section[ S_ROWMAP ] );
-		}
-
-		// Copy each non-empty section into the file sequentially
-		// and beginning on page boundaries.
-
-		for(int i = S_DESC; i < S_COUNT; i++ ) {
-			if( tmp_section[ i ] ) {
-				_pad_to_pagesize( data_fp );
-				hdr.section[ i ].offset = ftell( data_fp );
-				sendfile(
-					fileno( data_fp ),
-					fileno( tmp_section[i] ),
-					NULL,
-					hdr.section[i].size );
-
-				// Need to keep the C library FILE* in sync with the
-				// preceding manipulation of the lower-level file.
-				// This is one way to do it...
-
-				fseek( data_fp, 
-					lseek( fileno( data_fp ), 0, SEEK_CUR ),
-					SEEK_SET );
-
-				assert( lseek(fileno( data_fp ),0,SEEK_CUR) == ftell(data_fp ) );
-			}
-		}
-
-		/**
-		  * Note that padding happens before each section write above, so the
-		  * last section does not (and need not) have trailing padding. Thus,
-		  * the file size (SIZEOF_HEADER_BLOCK + hdr.sizeof_rt_image) will not
-		  * typically be a multiple of PAGE_SIZE.
-		  */
-
-		hdr.sizeof_rt_image 
-			= ftell( data_fp ) 
-			- SIZEOF_HEADER_BLOCK;
-
-		/**
-		  * Finally write the header, now that all its contents are complete.
-		  */
-
-		rewind( data_fp );
-		fwrite( &hdr, sizeof(struct mtm_matrix_header), 1, data_fp );
-		_pad_to_pagesize( data_fp );
-
-		/**
-		  * If caller wanted a memory-resident result, just reload it.
-		  */
-
-		if( output_m ) {
 			rewind( data_fp );
-			mtm_load_matrix( data_fp, output_m, NULL );
+			if( fwrite( &hdr, sizeof(struct mtm_matrix_header), 1, data_fp ) != 1 ) {
+				econd = MTM_E_IO;
+				goto cleanup_tmpfile;
+			}
+			_pad_to_pagesize( data_fp );
 		}
 	}
 
-	feature_free_encode_state( &f );
+	/**
+	  * If caller wanted a memory-resident result (and everything above
+	  * succeeded), just reload it.
+	  */
+
+	if( output_m && (econd == MTM_OK) ) {
+		rewind( data_fp );
+		mtm_load_matrix( data_fp, output_m, NULL );
+	}
 
 cleanup_tmpfile:
 
