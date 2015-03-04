@@ -103,7 +103,7 @@ int feature_encode( char * const line,
 
 	int stat_class = MTM_STATCLASS_UNKNOWN;
 	bool infer_field_type = false;
-	int ft, field_type;
+	int ft, field_type = MTM_FIELD_TYPE_UNK;
 	const char *token;
 	char *pc = line;
 

@@ -138,6 +138,7 @@ int mtm_parse( FILE *input,
 	struct mtm_matrix_header hdr;
 
 	memset( &hdr, 0, sizeof(struct mtm_matrix_header) );
+	memset( tmp_section, 0, sizeof(tmp_section) );
 
 	if( data_fp == NULL )
 		return MTM_E_IO;
