@@ -150,9 +150,9 @@ int covan_exec(
 		struct CovariateAnalysis *covan ) {
 
 	const unsigned int LC
-		= pair->l.desc.categories;
+		= pair->l.desc.cardinality;
 	const unsigned int RC
-		= pair->r.desc.categories;
+		= pair->r.desc.cardinality;
 
 	unsigned unused1 = 0;
 	unsigned unused2 = 0;
@@ -177,9 +177,13 @@ int covan_exec(
 	assert( (pair->r.desc.integral > 0) == (RC > 0) );
 
 	covan->stat_class.left
-		= LC > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+		= pair->l.desc.categorical
+		? MTM_STATCLASS_CATEGORICAL
+		: MTM_STATCLASS_CONTINUOUS;
 	covan->stat_class.right
-		= RC > 0 ? MTM_STATCLASS_CATEGORICAL : MTM_STATCLASS_CONTINUOUS;
+		= pair->r.desc.categorical
+		? MTM_STATCLASS_CATEGORICAL
+		: MTM_STATCLASS_CONTINUOUS;
 
 	/**
 	  * Determine feature classes and check for univariate degeneracy.

@@ -10,8 +10,6 @@
 #include "toktype.h"
 #include "mtsclass.h" // for field_type_x definitions.
 
-extern const char *MTMLIB;
-
 /**
   * Notice that these are strict patterns: 
   * 1. octal is required to begin with a '0', 
@@ -90,7 +88,7 @@ int toktype_init( const char *na_expression ) {
 		char *buf 
 			= alloca( required );
 		regerror( regerr, &_rx_na, buf, required );
-		fprintf( stderr, "%s: regex error: %s\n", MTMLIB, buf );
+		fprintf( stderr, "%s: regex error: %s\n", __func__, buf );
 		return -1;
 	}
 

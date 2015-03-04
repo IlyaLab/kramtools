@@ -7,7 +7,7 @@ INSTALL_LIB=$(HOME)/lib
 
 # Define this if you want MD5 hashing of the input matrix
 # built into the library.
-HAVE_MD5=
+HAVE_MD5=1
 
 ############################################################################
 
@@ -35,7 +35,7 @@ CFLAGS+=-I$(SRCLIB)
 CFLAGS+=-std=gnu99
 CFLAGS+=-I$(SRCLIB) -I$(CONTRIB) 
 ifdef HAVE_MD5
-CFLAGS+=-DHAVE_MD5
+CFLAGS+=-DHAVE_MD5=1
 endif
 
 OBJECTS=parser.o \
@@ -45,11 +45,13 @@ OBJECTS=parser.o \
 	syspage.o \
 	cardinality.o \
 	sclass.o \
+	specialc.o \
+	feature.o \
 	$(SRCLIB)/strset.o \
 	$(CONTRIB)/fnv/hash_32.o
 
 ifdef HAVE_MD5
-SOURCES+=$(CONTRIB)/md5/md5.c 
+OBJECTS+=$(CONTRIB)/md5/md5.o 
 endif
 
 
@@ -60,10 +62,12 @@ load.o    : mtmatrix.h mtheader.h syspage.h mterror.h
 sclass.o  : mtsclass.h
 toktype.o : mtsclass.h toktype.h
 cardinality.o :
-parser    : mtmatrix.h mtheader.h syspage.h mterror.h mtsclass.h \
+feature.o : feature.h mtmatrix.h toktype.h mterror.h mtsclass.h specialc.h \
 	$(SRCLIB)/strset.h
+parser.o  : syspage.h mtmatrix.h mtheader.h feature.h  mterror.h mtsclass.h specialc.h
 syspage.o : syspage.h 
 i2n.o     : syspage.h mtmatrix.h mtheader.h mterror.h
+$(CONTRIB)/md5/md5.o : $(CONTRIB)/md5/md5.h
 
 $(STATIC_LIB) : $(OBJECTS)
 	ar rcs $@ $^ 

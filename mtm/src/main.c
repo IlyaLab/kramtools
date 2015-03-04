@@ -14,25 +14,40 @@
 #include "mtheader.h"
 #include "mterror.h"
 
+#ifdef HAVE_MD5
+#ifndef MD5_DIGEST_LENGTH
+#define MD5_DIGEST_LENGTH (16)
+#endif
+#endif
+
 extern int mtm_sclass_by_prefix( const char *token );
 
 static void _echo_header( struct mtm_matrix_header *h, FILE *fp ) {
 	fprintf( fp, "%s\n", h->sig );
 	fprintf( fp,
-		"     endian: %08x\n"
-		"    version: %08x\n"
-		"      flags: %08x\n"
-		"header_size: %d\n"
-		" datum_size: %d\n"
-		"       rows: %d\n"
-		"    columns: %d\n",
-		h->endian,
+		"  endian: %08x\n"
+		" version: %08x\n"
+		"   flags: %08x\n"
+		"  header: %d bytes\n"
+		"rt_image: %d bytes\n"
+		"    cell: %d bytes\n"
+		"    rows: %d\n"
+		" columns: %d\n"
+#ifdef HAVE_MD5
+		"     MD5: %s\n"
+#endif
+		, h->endian,
 		h->version,
 		h->flags,
 		h->header_size,
-		h->datum_size,
+		h->sizeof_rt_image,
+		h->sizeof_cell,
 		h->rows,
-		h->columns );
+		h->columns 
+#ifdef HAVE_MD5
+		, h->md5
+#endif
+		);
 		
 	for(int i = 0; i < S_COUNT; i++ ) {
 		const struct section_descriptor *s = h->section + i;
@@ -65,7 +80,7 @@ static void _echo_matrix( struct mtm_matrix *m,
 			m->row_map ? "\t"                 : "",
 			MISSING < m->columns ? "FI"[ m->desc[r].integral ] : '?',
 			m->desc[r].constant ? '!' : '-',
-			m->desc[r].categories,
+			m->desc[r].cardinality,
 			MISSING );
 
 		if( m->desc[r].integral ) {
@@ -113,9 +128,6 @@ static int (*opt_interpret_type)( const char *token ) = mtm_sclass_by_prefix;
   * Output options
   */
 
-#ifdef HAVE_MD5
-static bool opt_include_md5     = false;
-#endif
 static bool opt_echo_matrix     = false;
 static bool opt_echo_header     = false;
 // This is the minimum precision that random.rb generates which
@@ -138,9 +150,6 @@ static const char *USAGE =
 "                     \"C:\" categorical\n"
 "                     \"B:\" boolean\n"
 "                     \"N:\" numeric/floating-point data\n"
-#endif
-#ifdef HAVE_MD5
-"  --checksum  | -c   include the (MD5) checksum of the input[%s]\n"
 #endif
 "Testing options (for validating a preprocessed matrix):\n"
 "  --echo      | -E   \"echo\" a preprocessed matrix as text [%s]\n"
@@ -167,9 +176,6 @@ static void _print_usage( const char *exename, FILE *fp ) {
 		exename,
 		opt_missing_marker,
 		opt_max_categories,
-#ifdef HAVE_MD5
-		opt_include_md5 ? _T : _F,
-#endif
 		opt_echo_matrix ? _T : _F,
 		opt_echo_header ? _T : _F,
 		opt_float_format,
@@ -198,11 +204,7 @@ int main( int argc, char *argv[] ) {
 
 	do {
 		static const char *CHAR_OPTIONS 
-#ifdef HAVE_MD5
-			= "rhm:k:icEHF:L:v:?";
-#else
 			= "rhm:k:iEHF:L:v:?";
-#endif
 		static struct option LONG_OPTIONS[] = {
 
 			{"nolabels",   0,0,'r'},
@@ -210,9 +212,6 @@ int main( int argc, char *argv[] ) {
 			{"missing",    1,0,'m'},
 			{"maxcats",    1,0,'k'},
 			{"infer",      0,0,'i'},
-#ifdef HAVE_MD5
-			{"checksum",   0,0,'c'},
-#endif
 			{"echo",       0,0,'E'},
 			{"header",     0,0,'H'},
 			{"float",      1,0,'F'},
@@ -231,9 +230,6 @@ int main( int argc, char *argv[] ) {
 		case 'm': opt_missing_marker  = optarg;       break;
 		case 'k': opt_max_categories  = atoi(optarg); break;
 		case 'i': opt_interpret_type  = NULL;         break;
-#ifdef HAVE_MD5
-		case 'c': opt_include_md5     = true;         break;
-#endif
 		case 'E': opt_echo_matrix     = true;         break;
 		case 'H': opt_echo_header     = true;         break;
 		case 'F': opt_float_format = optarg;          break;
@@ -344,11 +340,6 @@ int main( int argc, char *argv[] ) {
 		if( MTM_OK == mtm_load_matrix( fp_i, &mat, &hdr ) ) {
 
 			_echo_matrix( &mat, opt_label_format, opt_float_format, fp_o );
-#ifdef HAVE_MD5
-			if( opt_include_md5 ) {
-				fprintf( stdout, "# MD5: %s\n", m.md5 );
-			}
-#endif
 			mat.destroy( &mat );
 		} else
 			warnx( "failed loading %s", fname_i );

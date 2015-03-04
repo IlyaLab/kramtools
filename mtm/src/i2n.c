@@ -1,4 +1,10 @@
 
+/**
+  * This utility loads just the string table and row-map from a binary
+  * matrix and emits the row-labels corresponding to (zero-based) input
+  * indices.
+  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -86,6 +92,15 @@ int main( int argc, char *argv[] ) {
 
 		for(int i = 0; i < hdr.rows; i++ )
 			map[i].string += (long)strings;
+
+		if( hdr.flags & MTMHDR_ROW_LABELS_LEXORD ) {
+			err( -1, "strings are lexigraphically sorted" );
+			// TODO: Just resort them.
+		}
+
+		/**
+		  * Emit a row label for each integer in the filter file.
+		  */
 
 		while( ( llen = getline( &line, &blen, filter_fp ) ) > 0 ) {
 			const int ROW

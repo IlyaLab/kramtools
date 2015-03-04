@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <err.h>
 #include <alloca.h>
+#include <assert.h>
 
 #include "mtmatrix.h"
 #include "mtheader.h"
@@ -46,7 +47,7 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 
 	char *pc = NULL;
 	struct stat info;
-	size_t allocation, tailsize;
+	size_t allocation;
 
 	if( fstat( fileno( fp ), &info ) )
 		return MTM_E_IO;
@@ -62,39 +63,26 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 
 	matrix->rows    = header->rows;
 	matrix->columns = header->columns;
+	matrix->size    = header->sizeof_rt_image;
 
-#if 0
-	/**
-	  * The header is not persisted (in RAM, as part of the struct 
-	  * mtm_matrix), so we can subtract the size of its section from the
-	  * tailsize memory.
-	  */
-	{
-		const int LAST_SECTION
-			= (header->flags & MTMHDR_ROW_LABELS_PRESENT) != 0
-			? S_ROWMAP
-			: S_DESC;
-		tailsize
-			= header->section[ LAST_SECTION ].offset
-			+ header->section[ LAST_SECTION ].size
-			- header->section[ S_DATA ].offset;// because the header need not persist
-	}
-#else
-	tailsize
-		= info.st_size - header->section[ S_DATA ].offset;
-	allocation
-		= page_aligned_ceiling( tailsize );
-#endif
+	assert( matrix->size 
+			= info.st_size 
+			- header->section[ S_DATA ].offset );
+
+	allocation // ...must be PAGE_SIZE multiple, so will be a bit more.
+		= page_aligned_ceiling( matrix->size );
 
 	if( posix_memalign( (void**)&pc, RT_PAGE_SIZE, allocation ) == 0 ) {
 
-		const size_t SIZEOF_HEADER_SECTION
-			= page_aligned_ceiling( header->section[ S_DATA ].offset );
+		const size_t SIZEOF_HEADER_BLOCK
+			= page_aligned_ceiling(sizeof(struct mtm_matrix_header));
 
-		if( fseek( fp, SIZEOF_HEADER_SECTION, SEEK_SET ) )
+		memset( pc, 0, allocation );
+
+		if( fseek( fp, SIZEOF_HEADER_BLOCK, SEEK_SET ) )
 			return MTM_E_IO;
 
-		if( fread( pc, sizeof(char), tailsize, fp ) != tailsize ) {
+		if( fread( pc, sizeof(char), matrix->size, fp ) != matrix->size ) {
 			free( pc );
 			return MTM_E_IO;
 		}
@@ -104,13 +92,13 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 		matrix->desc
 			= (struct mtm_descriptor *)(pc
 			+ header->section[ S_DESC ].offset
-			- SIZEOF_HEADER_SECTION);
+			- SIZEOF_HEADER_BLOCK);
 
 		if( header->section[ S_ROWID ].offset > 0 ) {
 			matrix->row_id
 				= (const char *)(pc
 				+ header->section[ S_ROWID ].offset
-				- SIZEOF_HEADER_SECTION);
+				- SIZEOF_HEADER_BLOCK);
 		} else
 			matrix->row_id = NULL;
 
@@ -118,7 +106,7 @@ int mtm_load_matrix( FILE *fp, struct mtm_matrix *matrix, struct mtm_matrix_head
 			matrix->row_map
 				= (struct mtm_row *)(pc
 				+ header->section[ S_ROWMAP ].offset
-				- SIZEOF_HEADER_SECTION);
+				- SIZEOF_HEADER_BLOCK);
 		} else
 			matrix->row_map = NULL;
 

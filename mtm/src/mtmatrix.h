@@ -53,20 +53,20 @@ typedef MTM_INT_T      *MTM_ROW_PTR;
   *                          !!! WARNING !!!
   *
   * The integrity of the parsed result hinges on some assumptions about the
-  * actual data that is likely to be encountered/processed by this library.
+  * actual data that this library is likely to encounter and process.
   * In particular, I assume that it is "safe" to encode missing integral
-  * data ("NAs") by the same -bit pattern- as (float)NaN (#defined below).
+  * data ("NAs") by the same *bit pattern* as (float)NaN (#defined below).
   *
-  * For integer-encoded -categorical- data this is perfectly safe since
+  * For integer-encoded *categorical* data this is perfectly safe since
   * statistical considerations preclude categorical data from involving
   * more than (typically) 10's of categories. In other words, 0x7FC00000
   * is never likely to be needed to represent a category ("factor level").
   *
   * For ordinal data it's still safe, but maybe slightly less so.
-  * Ordinal -should- rarely involve 2,143,289,344 levels (the decimal value
+  * Ordinal *should* rarely involve 2,143,289,344 levels (the decimal value
   * of 0x7FC00000), but I can't say that it can't.
   *
-  * As a result of these considerations, I use the same -bit pattern- (NaN)
+  * As a result of these considerations, I use the same *bit pattern* (NaN)
   * to represent missing data for all data classes (numeric, ordinal, and
   * categorical) and both data types (floating-point and integral).
   *
@@ -84,7 +84,7 @@ typedef MTM_INT_T      *MTM_ROW_PTR;
   */
 struct mtm_descriptor {
 
-	unsigned int unused:30;
+	unsigned int unused:29;
 
 	/**
 	  * For both integral and floating-point features this is the primary
@@ -93,33 +93,35 @@ struct mtm_descriptor {
 	  *    That is, only one unique value was present in the feature.
 	  * 2. All fields' values were missing ("NA").
 	  *    That is, the feauture is entirely empty of data.
+	  * 3. Exactly one value was non-missing (a special case of #1).
 	  *
-	  * The two possibilities are distinguished by looking at <missing>.
+	  * The possibilities are distinguished by looking at <missing>.
 	  * If missing == column count, it's case #2.
 	  *
-	  * In either case, if this bit is set the feature is probably unuseable.
+	  * In any case, this bit being set indicates the feature is probably
+	  * unuseable.
 	  */
 	unsigned int constant:1;
 
 	/**
-	  * Set indicates integer data.
-	  * This flag simply distinguishes between data encoded as float-point and
-	  * data encoded as integer. Distinguishing between boolean, categorical
-	  * and ordinal (all of which are integral) is another matter.
+	  * This flag indicates the encoding of the data in the feature: either
+	  * unsigned int or float. (Does NOT say anything about the
+	  * interpretation; it could be boolean, categorical or ordinal.)
 	  */
 	unsigned int integral:1;
 
 	/**
-	  * This is both a flag and count. Non-zero indicates a categorical
-	  * feature AND the number of distinct categories.
-	  *
-	  * Obviously a count of 1 implies <constant> above, however, both
-	  * this and the preceding field will always be set independently
-	  * and therefore always be consistent. In other words, you can
-	  * rely on:
-	  *            ( categories == 1 ) ==> ( constant == 1 )
+	  * Says that the data of this feature is categorical (which includes
+	  * boolean). Cardinality distinguishes categorical from boolean.
 	  */
-	unsigned short categories;
+	unsigned int categorical:1;
+
+	/**
+	  * This is only meaningful if integral is set above and it is bounded
+	  * by the maximum allowed cardinality+1 of categorical data, so it will
+	  * not be accurate if actual data exceeds that.
+	  */
+	unsigned short cardinality;
 
 	/**
 	  * For all feature types, a count of the missing values.
@@ -166,6 +168,12 @@ struct mtm_matrix {
 	int rows;
 	int columns;
 
+	/**
+	  * Assuming the following four sections are contained in a single
+	  * block of memory (which need not necessarily be the case), this
+	  * is the (minimum) size in bytes of that memory block. (As with
+	  * malloc, there may be more allocated than we actually "own.")
+	  */
 	size_t size;
 
 	/**
@@ -214,12 +222,6 @@ struct mtm_matrix {
 	  * struct containing a file handle, offset, and length info.
 	  */
 	void *storage;
-
-	/**
-	  * This is only filled in if the MD5 hash was compiled into libmtm.
-	  * It is optional.
-	  */
-	char md5[33];
 };
 
 void mtm_resolve_rownames( struct mtm_matrix *m, signed long base );
