@@ -16,7 +16,7 @@
 #include "mtsclass.h"
 #include "specialc.h"
 
-//extern int mtm_sclass_by_prefix( const char *token );
+extern int mtm_sclass_by_prefix( const char *token );
 extern int cardinality(
 		const unsigned int *buf, int len, int largest_of_interest, const unsigned int NA );
 
@@ -392,19 +392,203 @@ void feature_free_encode_state( struct feature *f ) {
 
 #ifdef UNIT_TEST_FEATURE
 
+// Areas for testing parsing/encoding:
+// 	1. data content
+// 	2. matrix structure
+// 	3. row labels
+// 	4. statistical class prefixes (if present)
+// 	5. type inference and statistical class selection in absence
+// 		of prefixes
+// 
+// Most of #1 and #2 and the overall integrity of the filesystem binary
+// format can be assessed by round-trip evaluation of the data. That is,
+// if a binary matrix is echoed back as text it should be identical to 
+// the original input.
+// 
+// This ideal is precluded since 
+// 	1. The string information on categorical data is not preserved in the
+// 		encoding of the runtime form.
+// 	2. Variability in representation of missing data cannot be reproduced
+// 		in the echoed representation.
+// It is also complicated by float-point rounding.
+// However, if test code .
+// 
+// Overall structure
+// // Line parsing and interpretation is independently testable since
+// 	EVERYTHING is scoped to a line. This includes:
+// 	stat class and type inference handling
+// 	missing data handling
+// 	content
+// 
+// Type inference/statistical class
+// 
+// 	boolean, categorical, numeric
+// 	X
+// 	random missing data + missing data representation
+// 	X
+// 	with(out) row label
+// 		X
+// 		with(out) statclass prefix
+// 
+// 	Verify:
+// 		Descriptor has correct
+// 			flags:
+// 				constant
+// 				integral
+// 				categorical
+// 			cardinality
+// 			missing count
+// 
+// 	Forced error conditions to inject:
+// 		feature tagged boolean with > 2 levels
+// 	Confirm
+// 		feature tagged boolean with integer representation preserves rep.
+
+#include <getopt.h>
+
+/**
+  * Using separated fields, column counting is trivial: there will
+  * AlWAYS be one more column than there are separators.
+  *
+  * If the line contains only separators, all fields are empty!
+  *
+  * Ihis, in particular, allows for the (R-style) of an empty
+  * left-justified field in the header line.
+  */
+
+/**
+  * The output defined by this function is intended to be straightforward
+  * for the peer Python script to validate in combination with the input
+  * options.
+  */
+static void _emit( const char *line, struct feature *f,
+		struct mtm_descriptor *d, FILE *fp ) {
+
+#if 1
+	fprintf( fp,
+		"DEG\t%s\n"
+		"INT\t%s\n"
+		"CAT\t%s\n", 
+		d->constant    ? "T" : "F",
+		d->integral    ? "T" : "F",
+		d->categorical ? "T" : "F" );
+#else
+	if( d->constant    )
+		fprintf( fp, "constant\n" );
+	if( d->integral    )
+		fprintf( fp, "integral\n" );
+	if( d->categorical )
+		fprintf( fp, "categorical\n" );
+#endif
+
+	fprintf( fp, 
+		"CAR\t%d\n"
+		"N/A\t%d\n"
+		"LAB\t%s\n",
+		d->cardinality,
+		d->missing,
+		f->label_length > 0 ? line : "-" );
+
+	if( d->integral ) {
+		for(int i = 0; i < f->length; i++ ) {
+			fprintf( fp, "%d\n", f->buf.cat[i] );
+		}
+	} else {
+		for(int i = 0; i < f->length; i++ ) {
+			fprintf( fp, "%f\n", f->buf.num[i] );
+		}
+	}
+}
+
+
 int main( int argc, char *argv[] ) {
+
+	int exit_status = EXIT_FAILURE;
+	const int FIELD_SEP
+		= getenv("SEPARATOR")
+		? getenv("SEPARATOR")[0]
+		: '\t';
+
+	struct feature f = {
+		.length = 0,
+		//.buf.num: NULL,
+		.expect_row_labels =  true,
+		.missing_data_regex = mtm_default_NA_regex,
+		.interpret_prefix =   mtm_sclass_by_prefix,
+		.max_cardinality =    32,
+		.category_labels =    NULL
+	};
 
 	char  *line = NULL;
 	size_t blen = 0;
 	ssize_t llen;
-	if( argc > 1 ) {
-		while( ( llen = getline( &line, &blen, stdin ) ) > 0 ) {
+
+	do {
+		static const char *CHAR_OPTIONS 
+			= "rm:k:v:?";
+		static struct option LONG_OPTIONS[] = {
+
+			{"nolabels",   0,0,'r'},
+			{"missing",    1,0,'m'},
+			{"maxcats",    1,0,'k'},
+
+			{"verbosity",  1,0,'v'},
+			{ NULL,        0,0, 0 }
+		};
+
+		int opt_offset = 0;
+		const int c = getopt_long( argc, argv, CHAR_OPTIONS, LONG_OPTIONS, &opt_offset );
+		switch (c) {
+
+		case 'r': f.expect_row_labels  = false;        break;
+		case 'm': f.missing_data_regex = optarg;       break;
+		case 'k': f.max_cardinality    = atoi(optarg); break;
+		case 'v':
+			//opt_verbosity = atoi( optarg );
+			break;
+		case -1: // ...signals no more options.
+			break;
+		default:
+			printf ("error: unknown option: %c\n", c );
+			exit(-1);
 		}
-		if( line )
-			free( line );
+		if( -1 == c ) break;
+
+	} while( true );
+
+	llen = getline( &line, &blen, stdin );
+
+	if( llen > 0 && line != NULL ) {
+
+		int ec = MTM_OK;
+		struct mtm_descriptor d;
+
+		f.length 
+			= feature_count_fields( line, FIELD_SEP )
+			- ( f.expect_row_labels ? 1 : 0 );
+
+		if( (ec = feature_alloc_encode_state( &f ) ) == 0 ) {
+
+			if( (ec = feature_encode( line, &f, &d ) ) == 0 ) {
+
+				_emit( line, &f, &d, stdout );
+				exit_status = EXIT_SUCCESS;
+
+			} else
+				warnx( "error %d: feature_encode", ec );
+
+			feature_free_encode_state( &f );
+
+		} else
+			warnx( "error %d: feature_alloc_encode_state", ec );
+
+		free( line );
+
 	} else
-		errx( -1, "failed initializing" );
-	return 0;
+		warnx( "no input on stdin" );
+
+	return exit_status;
 }
+
 #endif
 
