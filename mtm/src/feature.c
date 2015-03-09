@@ -392,6 +392,8 @@ void feature_free_encode_state( struct feature *f ) {
 
 #ifdef UNIT_TEST_FEATURE
 
+#include <math.h>
+
 // Areas for testing parsing/encoding:
 // 	1. data content
 // 	2. matrix structure
@@ -443,6 +445,11 @@ void feature_free_encode_state( struct feature *f ) {
 // 		feature tagged boolean with > 2 levels
 // 	Confirm
 // 		feature tagged boolean with integer representation preserves rep.
+//	Note that boolean class is explicit rather than being merely implied
+//		by categorical + cardinality==2 because boolean allows the 
+//		possibility or ordered values whereas categorical always explicitly
+//		precludes the possibility of being ordered.
+//		Thus boolean is NOT considered a subset of categorical. (It was.)
 
 #include <getopt.h>
 
@@ -458,20 +465,23 @@ void feature_free_encode_state( struct feature *f ) {
 
 /**
   * The output defined by this function is intended to be straightforward
-  * for the peer Python script to validate in combination with the input
+  * for the peer Ruby script to validate in combination with the input
   * options.
   */
 static void _emit( const char *line, struct feature *f,
 		struct mtm_descriptor *d, FILE *fp ) {
 
+	const char *RUBY_BOOLEAN[] = {"FALSE", "TRUE" };
+	const char *RUBY_NA_DATA   =  "nil";
+	// Metadata is #-prefixed
 #if 1
 	fprintf( fp,
-		"DEG\t%s\n"
-		"INT\t%s\n"
-		"CAT\t%s\n", 
-		d->constant    ? "T" : "F",
-		d->integral    ? "T" : "F",
-		d->categorical ? "T" : "F" );
+		"#deg:%s\n"
+		"#int:%s\n"
+		"#cat:%s\n", 
+		RUBY_BOOLEAN[ d->constant ],
+		RUBY_BOOLEAN[ d->integral ],
+		RUBY_BOOLEAN[ d->categorical ] );
 #else
 	if( d->constant    )
 		fprintf( fp, "constant\n" );
@@ -482,20 +492,21 @@ static void _emit( const char *line, struct feature *f,
 #endif
 
 	fprintf( fp, 
-		"CAR\t%d\n"
-		"N/A\t%d\n"
-		"LAB\t%s\n",
+		"#card:%d\n"
+		"#miss:%d\n"
+		"#label:\"%s\"\n",
 		d->cardinality,
 		d->missing,
-		f->label_length > 0 ? line : "-" );
+		f->label_length > 0 ? line : "" );
 
-	if( d->integral ) {
-		for(int i = 0; i < f->length; i++ ) {
-			fprintf( fp, "%d\n", f->buf.cat[i] );
-		}
-	} else {
-		for(int i = 0; i < f->length; i++ ) {
-			fprintf( fp, "%f\n", f->buf.num[i] );
+	for(int i = 0; i < f->length; i++ ) {
+		if( isnan( f->buf.num[i] ) )
+			fprintf( fp, "%s\n", RUBY_NA_DATA );
+		else {
+			if( d->integral )
+				fprintf( fp, "%d\n", f->buf.cat[i] );
+			else
+				fprintf( fp, "%f\n", f->buf.num[i] );
 		}
 	}
 }
@@ -522,7 +533,7 @@ int main( int argc, char *argv[] ) {
 	char  *line = NULL;
 	size_t blen = 0;
 	ssize_t llen;
-
+	FILE *input = stdin;
 	do {
 		static const char *CHAR_OPTIONS 
 			= "rm:k:v:?";
@@ -556,7 +567,20 @@ int main( int argc, char *argv[] ) {
 
 	} while( true );
 
-	llen = getline( &line, &blen, stdin );
+	if( optind < argc ) {
+		const char *fname = argv[optind];
+		input = fopen( fname, "r" );
+		if( input == NULL )
+			err( -1, "opening %s", fname );
+	}
+
+	// Note that getline will block until it sees a NL if input is a pipe.
+
+	llen = getline( &line, &blen, input );
+
+	// feature_encode expects NUL-terminated strings, stripped of CR/NL.
+
+	if( line[llen-1] == '\n' ) line[--llen] = '\0';
 
 	if( llen > 0 && line != NULL ) {
 
@@ -585,7 +609,7 @@ int main( int argc, char *argv[] ) {
 		free( line );
 
 	} else
-		warnx( "no input on stdin" );
+		warnx( "no input" );
 
 	return exit_status;
 }
