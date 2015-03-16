@@ -94,6 +94,11 @@ ut-toktype : toktype.c
 ut-cardinality : cardinality.c
 	$(CC) -o $@ $(CFLAGS) -D_UNIT_TEST_CARDINALITY $^ -lm
 
+ut-feature : feature.c toktype.o cardinality.o sclass.o specialc.o \
+		$(SRCLIB)/strset.o \
+		$(CONTRIB)/fnv/hash_32.o
+	$(CC) -o $@ $(CFLAGS) -std=gnu99 -DUNIT_TEST_FEATURE=1 -I$(SRCLIB) -I$(CONTRIB) $^ -lm
+
 install : $(SHARED_LIB) $(STATIC_LIB)
 	install $^ $(INSTALL_LIB)
 
