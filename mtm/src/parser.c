@@ -59,6 +59,44 @@ static void _pad_to_pagesize( FILE *fp ) {
 
 
 /**
+  * This is strictly to accomodate old kernels.
+  * Eventually this should be removed.
+  */
+static ssize_t _sendfile( int out_fd, int in_fd, off_t *offset, size_t rem ) {
+
+#define BLKSIZE (0x1000)
+
+	static char xferbuf[ BLKSIZE ];
+
+	while( rem > 0 ) {
+		const size_t COUNT
+			= rem < BLKSIZE ? rem : BLKSIZE;
+		const size_t RD
+			= read( in_fd, xferbuf, COUNT );
+		size_t wr = 0;
+		// It's not an error if RD < COUNT, only if RD < 0!
+		if( RD < 0 ) {
+			warn( "%s:%d:%s: read", __FILE__, __LINE__, __func__ );
+			return -1;
+		}
+		// Above comment applies here, too, but, whereas we need not read
+		// a full buffer to proceed, we must write everything so far read
+		// before proceeding...
+		while( wr < RD ) {
+			const size_t WR
+				= write( out_fd, xferbuf + wr, RD-wr );
+			if( WR < 0 ) {
+				warn( "%s:%d:%s: write", __FILE__, __LINE__, __func__ );
+				return -1;
+			}
+			wr += WR;
+		}
+		rem -= COUNT;
+	}
+}
+
+
+/**
   * Merge the content of the tmpfiles in section_fp[] into fp.
   * Incidentally, if the caller of mtm_parse wanted a filesystem resident
   * result, then fp *is* that file. Otherwise, fp is also a tmpfile.
@@ -114,12 +152,12 @@ static int _merge_tmpfiles(
 			_pad_to_pagesize( fp );
 			section[ i ].offset = ftell( fp );
 
-			if( sendfile(
+			if( _sendfile(
 				fileno( fp ),
 				fileno( section_fp[i] ),
 				NULL,
 				section[i].size ) < 0 ) {
-				warn( "%s:%d:%s: sendfile", __FILE__, __LINE__, __func__ );
+				warn( "%s:%d:%s: _sendfile", __FILE__, __LINE__, __func__ );
 				return MTM_E_IO;
 			}
 
@@ -130,7 +168,7 @@ static int _merge_tmpfiles(
 			if( fseek( fp, 
 				lseek( fileno( fp ), 0, SEEK_CUR ),
 				SEEK_SET ) ) {
-				warn( "%s:%d:%s: sendfile", __FILE__, __LINE__, __func__ );
+				warn( "%s:%d:%s: _sendfile", __FILE__, __LINE__, __func__ );
 				return MTM_E_IO;
 			}
 
